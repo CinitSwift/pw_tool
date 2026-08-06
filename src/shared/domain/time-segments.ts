@@ -58,14 +58,14 @@ export function validateSegments(
   input: { status: SessionStatus; segments: TimeSegment[] },
   nowMs: number,
 ): { valid: boolean; errors: SegmentValidationError[] } {
-  if (!isRepresentableTimestamp(nowMs) || !isSecondBoundary(nowMs)) {
+  if (!isRepresentableTimestamp(nowMs)) {
     return {
       valid: false,
       errors: [
         {
           code: 'invalid-date',
           segmentIndex: -1,
-          message: 'Current time must be a representable whole-second millisecond timestamp.',
+          message: 'Current time must be a representable integer millisecond timestamp.',
         },
       ],
     };

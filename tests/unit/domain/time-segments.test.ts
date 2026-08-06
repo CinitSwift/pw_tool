@@ -164,15 +164,31 @@ describe('validateSegments', () => {
     );
   });
 
-  it('rejects an invalid current time', () => {
-    expect(validateSegments({ status: 'completed', segments: [segment(0, 1_000)] }, 1.5)).toEqual({
-      valid: false,
-      errors: [expect.objectContaining({ code: 'invalid-date', segmentIndex: -1 })],
-    });
+  it('accepts a current time with millisecond precision', () => {
+    const result = validateSegments({ status: 'completed', segments: [segment(0, 1_000)] }, 1_501);
+
+    expect(result).toEqual({ valid: true, errors: [] });
   });
 
-  it('rejects a current time that is not on a whole-second boundary', () => {
-    const result = validateSegments({ status: 'completed', segments: [segment(0, 1_000)] }, 1_500);
+  it.each([1.5, Number.NaN, Number.POSITIVE_INFINITY, 8_640_000_000_000_001])(
+    'rejects invalid current time %s',
+    (nowMs) => {
+      const result = validateSegments(
+        { status: 'completed', segments: [segment(0, 1_000)] },
+        nowMs,
+      );
+
+      expect(result.errors).toContainEqual(
+        expect.objectContaining({ code: 'invalid-date', segmentIndex: -1 }),
+      );
+    },
+  );
+
+  it('rejects a negative out-of-range current time', () => {
+    const result = validateSegments(
+      { status: 'completed', segments: [segment(0, 1_000)] },
+      -8_640_000_000_000_001,
+    );
 
     expect(result.errors).toContainEqual(
       expect.objectContaining({ code: 'invalid-date', segmentIndex: -1 }),

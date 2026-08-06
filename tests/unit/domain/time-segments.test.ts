@@ -170,7 +170,16 @@ describe('validateSegments', () => {
     expect(result).toEqual({ valid: true, errors: [] });
   });
 
-  it.each([1.5, Number.NaN, Number.POSITIVE_INFINITY, 8_640_000_000_000_001])(
+  it('accepts a safe current time outside the JavaScript Date range', () => {
+    const result = validateSegments(
+      { status: 'completed', segments: [segment(0, 1_000)] },
+      Number.MAX_SAFE_INTEGER,
+    );
+
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it.each([1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
     'rejects invalid current time %s',
     (nowMs) => {
       const result = validateSegments(
@@ -183,17 +192,6 @@ describe('validateSegments', () => {
       );
     },
   );
-
-  it('rejects a negative out-of-range current time', () => {
-    const result = validateSegments(
-      { status: 'completed', segments: [segment(0, 1_000)] },
-      -8_640_000_000_000_001,
-    );
-
-    expect(result.errors).toContainEqual(
-      expect.objectContaining({ code: 'invalid-date', segmentIndex: -1 }),
-    );
-  });
 
   it('accepts 1000 segments and rejects 1001', () => {
     const thousand = Array.from({ length: 1_000 }, (_, index) =>

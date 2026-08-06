@@ -1,0 +1,10 @@
+.worktrees/
+node_modules/
+out/
+release/
+coverage/
+playwright-report/
+test-results/
+*.db
+*.db-shm
+*.db-wal

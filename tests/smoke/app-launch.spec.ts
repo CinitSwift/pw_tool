@@ -3,10 +3,13 @@ import { _electron as electron } from 'playwright';
 
 test('launches the desktop shell', async () => {
   const app = await electron.launch({ args: ['.'] });
-  const page = await app.firstWindow();
 
-  await expect(page.locator('[data-testid="app-root"]')).toBeVisible();
-  await expect(page).toHaveTitle('陪玩小工具');
+  try {
+    const page = await app.firstWindow();
 
-  await app.close();
+    await expect(page.locator('[data-testid="app-root"]')).toBeVisible();
+    await expect(page).toHaveTitle('陪玩小工具');
+  } finally {
+    await app.close();
+  }
 });

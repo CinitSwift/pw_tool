@@ -171,6 +171,14 @@ describe('validateSegments', () => {
     });
   });
 
+  it('rejects a current time that is not on a whole-second boundary', () => {
+    const result = validateSegments({ status: 'completed', segments: [segment(0, 1_000)] }, 1_500);
+
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({ code: 'invalid-date', segmentIndex: -1 }),
+    );
+  });
+
   it('accepts 1000 segments and rejects 1001', () => {
     const thousand = Array.from({ length: 1_000 }, (_, index) =>
       segment(index * 1_000, (index + 1) * 1_000),
@@ -188,15 +196,13 @@ describe('validateSegments', () => {
     );
   });
 
-  it('requires an explicit sequence to match array order', () => {
-    const result = validate(
-      'completed',
-      [segment(0, 1_000, 0), segment(1_000, 2_000, 0)],
-      2_000,
-    );
-
-    expect(result.errors).toContainEqual(
-      expect.objectContaining({ code: 'invalid-sequence', segmentIndex: 1 }),
-    );
+  it('allows non-zero, non-contiguous sequence values', () => {
+    expect(
+      validate(
+        'completed',
+        [segment(0, 1_000, 7), segment(1_000, 2_000, 42)],
+        2_000,
+      ),
+    ).toEqual({ valid: true, errors: [] });
   });
 });

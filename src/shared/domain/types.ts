@@ -30,8 +30,7 @@ export type SegmentValidationErrorCode =
   | 'open-segment'
   | 'future-time'
   | 'too-many-segments'
-  | 'empty-segments'
-  | 'invalid-sequence';
+  | 'empty-segments';
 
 export interface SegmentValidationError {
   code: SegmentValidationErrorCode;

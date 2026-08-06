@@ -91,14 +91,6 @@ export function validateSegments(
   }
 
   for (const [index, segment] of segments.entries()) {
-    if (segment.sequence !== undefined && segment.sequence !== index) {
-      errors.push({
-        code: 'invalid-sequence',
-        segmentIndex: index,
-        message: 'Segment sequence must match its array order.',
-      });
-    }
-
     const startedAtValid = validateTimestampField(
       errors,
       segment.startedAt,

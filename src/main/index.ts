@@ -1,43 +1,41 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+  configureWindowSecurity,
+  createMainWindowOptions,
+  createWindowFocusController,
+} from './window-policy';
 
 let mainWindow: BrowserWindow | null = null;
+const windowFocusController = createWindowFocusController();
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.focus();
-    }
-  });
+  app.on('second-instance', () => windowFocusController.requestFocus());
 
   const createMainWindow = (): void => {
-    mainWindow = new BrowserWindow({
-      width: 720,
-      height: 620,
-      minWidth: 680,
-      minHeight: 560,
-      webPreferences: {
-        preload: join(__dirname, '../preload/index.js'),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
+    mainWindow = new BrowserWindow(
+      createMainWindowOptions(join(__dirname, '../preload/index.js')),
+    );
+    windowFocusController.setWindow(mainWindow);
+
+    const rendererFile = join(__dirname, '../renderer/index.html');
+    const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? pathToFileURL(rendererFile).href;
+    configureWindowSecurity(mainWindow.webContents, rendererUrl);
 
     if (process.env.ELECTRON_RENDERER_URL) {
-      void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+      void mainWindow.loadURL(rendererUrl);
     } else {
-      void mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+      void mainWindow.loadFile(rendererFile);
     }
 
     mainWindow.on('closed', () => {
       mainWindow = null;
+      windowFocusController.setWindow(null);
     });
   };
 

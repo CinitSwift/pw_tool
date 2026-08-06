@@ -1,6 +1,7 @@
 import type { BillingMode, BillingSettings, FeeResult } from './types';
 
 const BILLING_MODES: readonly BillingMode[] = ['15-step', '15-floor', 'minute'];
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 
 function assertNonNegativeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
@@ -16,18 +17,19 @@ function assertPositiveInteger(value: number, name: string): void {
 
 function assertBillingMode(value: unknown): asserts value is BillingMode {
   if (!BILLING_MODES.includes(value as BillingMode)) {
-    throw new RangeError('billingMode must be a supported mode');
+    throw new RangeError(`billingMode must be one of: ${BILLING_MODES.join(', ')}`);
   }
 }
 
 function calculateAmountCents(billedMinutes: number, hourlyAmountYuan: number): number {
-  const amountCents = Math.round((billedMinutes * hourlyAmountYuan * 100) / 60);
+  const numerator = BigInt(billedMinutes) * BigInt(hourlyAmountYuan) * 100n;
+  const amountCents = (numerator + 30n) / 60n;
 
-  if (!Number.isSafeInteger(amountCents)) {
+  if (amountCents > MAX_SAFE_INTEGER_BIGINT) {
     throw new RangeError('calculated amount exceeds the supported integer range');
   }
 
-  return amountCents;
+  return Number(amountCents);
 }
 
 export function roundUpEffectiveMinutes(effectiveSeconds: number): number {

@@ -79,6 +79,24 @@ describe('billing', () => {
     expect(calculateCommission({ billedMinutes: 1, hourlyCommissionYuan: 1 })).toBe(2);
   });
 
+  it('keeps large commission calculations exact when the intermediate product exceeds safe integer precision', () => {
+    expect(
+      calculateCommission({
+        billedMinutes: 90_071_992_547_409,
+        hourlyCommissionYuan: 28,
+      }),
+    ).toBe(4_203_359_652_212_420);
+  });
+
+  it('rejects a final amount beyond the safe integer range', () => {
+    expect(() =>
+      calculateCommission({
+        billedMinutes: Number.MAX_SAFE_INTEGER,
+        hourlyCommissionYuan: 1,
+      }),
+    ).toThrowError(new RangeError('calculated amount exceeds the supported integer range'));
+  });
+
   it('calculates a complete fee result from effective seconds and settings', () => {
     expect(
       calculateFeeResult({
@@ -111,6 +129,13 @@ describe('billing', () => {
     },
   );
 
+  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid billed minutes %s for commission',
+    (billedMinutes) => {
+      expect(() => calculateCommission({ billedMinutes, hourlyCommissionYuan: 3 })).toThrow();
+    },
+  );
+
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
     'rejects invalid hourly rate %s',
     (hourlyRateYuan) => {
@@ -132,7 +157,9 @@ describe('billing', () => {
   );
 
   it('rejects unsupported billing modes', () => {
-    expect(() => getBilledMinutes(1, 'unknown' as never)).toThrow();
+    expect(() => getBilledMinutes(1, 'unknown' as never)).toThrow(
+      'billingMode must be one of: 15-step, 15-floor, minute',
+    );
     expect(() =>
       calculateSessionFee({
         effectiveMinutes: 1,

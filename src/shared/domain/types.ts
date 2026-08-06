@@ -14,3 +14,28 @@ export interface FeeResult {
   grossAmountCents: number;
   commissionAmountCents: number;
 }
+
+export interface TimeSegment {
+  id?: string;
+  sequence?: number;
+  startedAt: number;
+  endedAt: number | null;
+}
+
+export type SegmentValidationErrorCode =
+  | 'invalid-date'
+  | 'subsecond'
+  | 'zero-duration'
+  | 'overlap'
+  | 'open-segment'
+  | 'future-time'
+  | 'too-many-segments'
+  | 'empty-segments'
+  | 'invalid-sequence';
+
+export interface SegmentValidationError {
+  code: SegmentValidationErrorCode;
+  segmentIndex: number;
+  field?: 'startedAt' | 'endedAt';
+  message: string;
+}

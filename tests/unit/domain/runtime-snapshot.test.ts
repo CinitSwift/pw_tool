@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { getRuntimeSnapshot } from '../../../src/shared/domain/runtime-snapshot';
 import { completeSession, invalidateSession, pauseSession, startSession } from '../../../src/shared/domain/session-machine';
-import type { BillingSettings } from '../../../src/shared/domain/types';
+import type { BillingSettings, Session } from '../../../src/shared/domain/types';
 
 const settings: BillingSettings = { billingMode: 'minute', hourlyRateYuan: 40, hourlyCommissionYuan: 3 };
 
 describe('runtime snapshots', () => {
   it('returns an idle zero snapshot for no session', () => {
-    expect(getRuntimeSnapshot(null, 123.5)).toEqual({
+    expect(getRuntimeSnapshot(null, 123)).toEqual({
       status: 'idle',
       effectiveSeconds: 0,
       effectiveMinutes: 0,
@@ -33,6 +33,30 @@ describe('runtime snapshots', () => {
       currentSegmentIndex: 0,
     });
     expect(session.segments[0].endedAt).toBeNull();
+  });
+
+  it('calculates an extreme open segment with exact integer millisecond arithmetic', () => {
+    const session = startSession({ id: 's1', nowMs: -8_640_000_000_000_000, settings });
+
+    expect(getRuntimeSnapshot(session, 8_639_999_999_999_999)).toEqual(expect.objectContaining({
+      effectiveSeconds: 17_279_999_999_999,
+    }));
+  });
+
+  it('rejects closed and open seconds whose sum exceeds the safe integer range', () => {
+    const lowRateSettings: BillingSettings = { billingMode: 'minute', hourlyRateYuan: 1, hourlyCommissionYuan: 1 };
+    const closedSegment = { sequence: 0, startedAt: -8_640_000_000_000_000, endedAt: 8_640_000_000_000_000 };
+    const session: Session = {
+      ...startSession({ id: 's1', nowMs: -8_640_000_000_000_000, settings: lowRateSettings }),
+      segments: [
+        ...Array.from({ length: 521 }, () => ({ ...closedSegment })),
+        { sequence: 521, startedAt: -8_640_000_000_000_000, endedAt: null },
+      ],
+    };
+
+    expect(() => getRuntimeSnapshot(session, Number.MAX_SAFE_INTEGER)).toThrow(
+      'effective seconds exceed the supported integer range',
+    );
   });
 
   it('uses closed segments for paused and completed sessions', () => {
@@ -80,7 +104,15 @@ describe('runtime snapshots', () => {
   });
 
   it('rejects a runtime now that is not a safe integer millisecond', () => {
+    expect(() => getRuntimeSnapshot(null, 123.5)).toThrow(/safe integer|integer/);
     expect(() => getRuntimeSnapshot(null, Number.NaN)).toThrow();
     expect(() => getRuntimeSnapshot(null, Number.MAX_SAFE_INTEGER + 1)).toThrow();
+  });
+
+  it('accepts the maximum safe integer as runtime now', () => {
+    expect(getRuntimeSnapshot(null, Number.MAX_SAFE_INTEGER)).toEqual(expect.objectContaining({
+      status: 'idle',
+      effectiveSeconds: 0,
+    }));
   });
 });

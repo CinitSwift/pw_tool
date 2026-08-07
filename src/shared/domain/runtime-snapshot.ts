@@ -14,16 +14,11 @@ export interface RuntimeSnapshot {
   error?: { code: 'clock-skew'; message: string };
 }
 
-const MAX_DATE_MS = 8_640_000_000_000_000;
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 
 function assertRuntimeTimestamp(value: number): void {
-  if (
-    !Number.isFinite(value) ||
-    !Number.isSafeInteger(Math.trunc(value)) ||
-    Math.abs(value) > MAX_DATE_MS ||
-    Number.isNaN(new Date(value).getTime())
-  ) {
-    throw new RangeError('nowMs must be a finite, representable safe timestamp');
+  if (!Number.isSafeInteger(value)) {
+    throw new RangeError('nowMs must be a safe integer millisecond timestamp');
   }
 }
 
@@ -58,6 +53,29 @@ function toSnapshot(
 
 function calculateClosedSeconds(segments: TimeSegment[]): number {
   return calculateEffectiveSeconds(segments.filter((segment) => segment.endedAt !== null));
+}
+
+function calculateOpenSeconds(nowMs: number, startedAt: number): number {
+  const elapsedMilliseconds = BigInt(nowMs) - BigInt(startedAt);
+  if (elapsedMilliseconds < 0n) {
+    throw new RangeError('Open segment duration cannot be negative');
+  }
+
+  const elapsedSeconds = elapsedMilliseconds / 1_000n;
+  if (elapsedSeconds > MAX_SAFE_INTEGER_BIGINT) {
+    throw new RangeError('effective seconds exceed the supported integer range');
+  }
+
+  return Number(elapsedSeconds);
+}
+
+function addSeconds(closedSeconds: number, openSeconds: number): number {
+  const effectiveSeconds = BigInt(closedSeconds) + BigInt(openSeconds);
+  if (effectiveSeconds < 0n || effectiveSeconds > MAX_SAFE_INTEGER_BIGINT) {
+    throw new RangeError('effective seconds exceed the supported integer range');
+  }
+
+  return Number(effectiveSeconds);
 }
 
 export function getRuntimeSnapshot(session: Session | null, nowMs: number): RuntimeSnapshot {
@@ -99,8 +117,8 @@ export function getRuntimeSnapshot(session: Session | null, nowMs: number): Runt
     };
   }
 
-  const openSeconds = Math.floor((nowMs - currentSegment.startedAt) / 1_000);
-  const effectiveSeconds = closedSeconds + Math.max(0, openSeconds);
+  const openSeconds = calculateOpenSeconds(nowMs, currentSegment.startedAt);
+  const effectiveSeconds = addSeconds(closedSeconds, openSeconds);
   return toSnapshot(
     'running',
     effectiveSeconds,

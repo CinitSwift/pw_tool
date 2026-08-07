@@ -17,6 +17,7 @@ export interface Session {
 }
 
 const MAX_DATE_MS = 8_640_000_000_000_000;
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 const ZERO_FEE: FeeResult = {
   effectiveMinutes: 0,
   billedMinutes: 0,
@@ -67,6 +68,29 @@ function calculatePersistedFee(segments: TimeSegment[], settings: BillingSetting
   });
 }
 
+function calculateOpenSeconds(nowMs: number, startedAt: number): number {
+  const elapsedMilliseconds = BigInt(nowMs) - BigInt(startedAt);
+  if (elapsedMilliseconds < 0n) {
+    throw new RangeError('Open segment duration cannot be negative');
+  }
+
+  const elapsedSeconds = elapsedMilliseconds / 1_000n;
+  if (elapsedSeconds > MAX_SAFE_INTEGER_BIGINT) {
+    throw new RangeError('effective seconds exceed the supported integer range');
+  }
+
+  return Number(elapsedSeconds);
+}
+
+function addSeconds(closedSeconds: number, openSeconds: number): number {
+  const effectiveSeconds = BigInt(closedSeconds) + BigInt(openSeconds);
+  if (effectiveSeconds < 0n || effectiveSeconds > MAX_SAFE_INTEGER_BIGINT) {
+    throw new RangeError('effective seconds exceed the supported integer range');
+  }
+
+  return Number(effectiveSeconds);
+}
+
 function calculateFeeAtNow(
   status: SessionStatus,
   segments: TimeSegment[],
@@ -83,11 +107,27 @@ function calculateFeeAtNow(
     throw new Error('A running session must have an open final segment');
   }
 
-  const openSeconds = Math.floor((nowMs - openSegment.startedAt) / 1_000);
+  const openSeconds = calculateOpenSeconds(nowMs, openSegment.startedAt);
   return calculateFeeResult({
-    effectiveSeconds: closedSeconds + Math.max(0, openSeconds),
+    effectiveSeconds: addSeconds(closedSeconds, openSeconds),
     settings,
   });
+}
+
+function nextSequence(segments: TimeSegment[]): number {
+  let maximum = -1;
+  for (const [index, segment] of segments.entries()) {
+    const sequence = segment.sequence ?? index;
+    if (!Number.isSafeInteger(sequence)) {
+      throw new RangeError('Segment sequence must be a safe integer');
+    }
+    maximum = Math.max(maximum, sequence);
+  }
+
+  if (maximum >= Number.MAX_SAFE_INTEGER) {
+    throw new RangeError('Segment sequence exceeds the supported integer range');
+  }
+  return maximum + 1;
 }
 
 function assertSessionStatus(session: Session, allowed: readonly SessionStatus[]): void {
@@ -137,7 +177,7 @@ export function resumeSession(session: Session, nowMs: number): Session {
   assertWriteTimestamp(nowMs, 'nowMs');
   assertSessionStatus(session, ['paused']);
   const segments = cloneSegments(session.segments);
-  segments.push({ sequence: segments.length, startedAt: nowMs, endedAt: null });
+  segments.push({ sequence: nextSequence(segments), startedAt: nowMs, endedAt: null });
   assertValidSegments('running', segments, nowMs);
 
   return withRecalculatedFee({ ...cloneSession(session), status: 'running', segments }, calculatePersistedFee(session.segments, session.settings));
@@ -208,10 +248,7 @@ export function updateSessionNote(session: Session, note: string): Session {
     throw new RangeError('Note cannot exceed 500 Unicode code points');
   }
 
-  return withRecalculatedFee(
-    { ...cloneSession(session), note: trimmed },
-    calculatePersistedFee(session.segments, session.settings),
-  );
+  return { ...cloneSession(session), note: trimmed };
 }
 
 export function editSessionSegments(

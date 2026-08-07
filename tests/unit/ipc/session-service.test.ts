@@ -388,4 +388,205 @@ describe('registerIpc', () => {
     expect(send).toHaveBeenCalledWith(IPC.sessionSnapshot, snapshot);
     registration.unregister();
   });
+
+  it('rejects handler errors as plain structured errors with stable domain codes', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const ipcMain = {
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
+      removeHandler: (channel: string) => handlers.delete(channel),
+    };
+    const domainError = new Error('active session already exists');
+    const dependencies = {
+      ipcMain,
+      session: {
+        getSnapshot: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        start: () => {
+          throw domainError;
+        },
+        pause: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        resume: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        complete: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        updateSettings: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        updateNote: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        editSegments: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        handleRecovery: () => ({ snapshot: ({ marker: 'snapshot' }) as unknown as SessionSnapshot }),
+      },
+      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
+      window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
+    };
+
+    const registration = registerIpc(dependencies);
+
+    const domainResult = await Promise.resolve(handlers.get(IPC.sessionStart)?.({})).catch((error: unknown) => error);
+    expect(domainResult).toEqual({
+      code: 'session-active-exists',
+      message: 'active session already exists',
+    });
+    expect(domainResult).not.toBeInstanceOf(Error);
+
+    dependencies.session.start = () => {
+      throw new Error('database connection secret');
+    };
+    const internalResult = await Promise.resolve(handlers.get(IPC.sessionStart)?.({})).catch((error: unknown) => error);
+    expect(internalResult).toEqual({
+      code: 'internal-error',
+      message: 'An internal error occurred.',
+    });
+    expect(internalResult).not.toBeInstanceOf(Error);
+
+    dependencies.session.start = () => {
+      throw {
+        code: 'SQLITE_BUSY',
+        message: 'database connection secret',
+        stack: 'private stack',
+        Database: { path: '/private/database.sqlite' },
+        Event: { sender: 'private event' },
+      };
+    };
+    await expect(handlers.get(IPC.sessionStart)?.({})).rejects.toEqual({
+      code: 'internal-error',
+      message: 'An internal error occurred.',
+    });
+
+    registration.unregister();
+  });
+
+  it('preserves serializable field errors while rejecting a domain validation error', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const ipcMain = {
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
+      removeHandler: (channel: string) => handlers.delete(channel),
+    };
+    const fieldErrors = [{ code: 'open-segment', segmentIndex: 0, field: 'endedAt', message: 'segment is open' }];
+    const dependencies = {
+      ipcMain,
+      session: {
+        getSnapshot: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        start: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        pause: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        resume: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        complete: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        updateSettings: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        updateNote: () => {
+          throw { code: 'validation-error', message: 'Invalid note', fieldErrors };
+        },
+        editSegments: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
+        handleRecovery: () => ({ snapshot: ({ marker: 'snapshot' }) as unknown as SessionSnapshot }),
+      },
+      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
+      window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
+    };
+
+    const registration = registerIpc(dependencies);
+
+    await expect(handlers.get(IPC.sessionUpdateNote)?.({}, 'note')).rejects.toEqual({
+      code: 'validation-error',
+      message: 'Invalid note',
+      fieldErrors,
+    });
+    registration.unregister();
+  });
+
+  it('automatically broadcasts snapshots after every session write', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const ipcMain = {
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
+      removeHandler: (channel: string) => handlers.delete(channel),
+    };
+    const snapshot = { marker: 'snapshot' } as unknown as SessionSnapshot;
+    const recovery = { snapshot };
+    const send = vi.fn();
+    const dependencies = {
+      ipcMain,
+      session: {
+        getSnapshot: vi.fn(() => snapshot),
+        start: vi.fn(() => snapshot),
+        pause: vi.fn(() => snapshot),
+        resume: vi.fn(() => snapshot),
+        complete: vi.fn(() => snapshot),
+        updateSettings: vi.fn(() => snapshot),
+        updateNote: vi.fn(() => snapshot),
+        editSegments: vi.fn(() => snapshot),
+        handleRecovery: vi.fn(() => recovery),
+      },
+      history: { list: vi.fn(() => []), delete: vi.fn(), exportCsv: vi.fn(() => ({ filePath: '', rowCount: 0 })) },
+      settings: { get: vi.fn(() => ({ ...defaultSettings, miniAlwaysOnTop: false })), save: vi.fn((value: AppSettings) => value) },
+      window: { showMain: vi.fn(), showMini: vi.fn(), setAlwaysOnTop: vi.fn((value: boolean) => value) },
+      snapshotTargets: () => [{ send }],
+    };
+    const registration = registerIpc(dependencies);
+
+    const writes: Array<[string, unknown[]]> = [
+      [IPC.sessionStart, []],
+      [IPC.sessionPause, []],
+      [IPC.sessionResume, []],
+      [IPC.sessionComplete, []],
+      [IPC.sessionUpdateSettings, [defaultSettings]],
+      [IPC.sessionUpdateNote, ['note']],
+      [IPC.sessionEditSegments, [[]]],
+    ];
+    for (const [channel, args] of writes) {
+      send.mockClear();
+      await handlers.get(channel)?.({}, ...args);
+      expect(send).toHaveBeenCalledWith(IPC.sessionSnapshot, snapshot);
+    }
+
+    for (const choice of ['restore', 'discard', 'restart-new-session'] as const) {
+      send.mockClear();
+      await handlers.get(IPC.sessionRecovery)?.({}, choice);
+      expect(send).toHaveBeenCalledWith(IPC.sessionSnapshot, snapshot);
+    }
+
+    send.mockClear();
+    await handlers.get(IPC.sessionSnapshot)?.({});
+    await handlers.get(IPC.historyList)?.({}, {});
+    await handlers.get(IPC.historyDelete)?.({}, 'id');
+    await handlers.get(IPC.historyExportCsv)?.({}, {});
+    await handlers.get(IPC.settingsGet)?.({});
+    await handlers.get(IPC.settingsSave)?.({}, {});
+    await handlers.get(IPC.windowShowMain)?.({});
+    await handlers.get(IPC.windowShowMini)?.({});
+    await handlers.get(IPC.windowSetAlwaysOnTop)?.({}, true);
+    expect(send).toHaveBeenCalledTimes(0);
+
+    registration.unregister();
+  });
+
+  it('broadcasts a recovery result snapshot rather than invalidated session details', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const ipcMain = {
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
+      removeHandler: (channel: string) => handlers.delete(channel),
+    };
+    const snapshot = { marker: 'new-session-snapshot' } as unknown as SessionSnapshot;
+    const send = vi.fn();
+    const registration = registerIpc({
+      ipcMain,
+      session: {
+        getSnapshot: () => snapshot,
+        start: () => snapshot,
+        pause: () => snapshot,
+        resume: () => snapshot,
+        complete: () => snapshot,
+        updateSettings: () => snapshot,
+        updateNote: () => snapshot,
+        editSegments: () => snapshot,
+        handleRecovery: () => ({
+          invalidatedSession: buildSession({ id: 'invalidated' }),
+          newSession: buildSession({ id: 'new' }),
+          snapshot,
+        }),
+      },
+      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
+      window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
+      snapshotTargets: () => [{ send }],
+    });
+
+    await expect(handlers.get(IPC.sessionRecovery)?.({}, 'restart-new-session')).resolves.toMatchObject({ snapshot });
+    expect(send).toHaveBeenCalledWith(IPC.sessionSnapshot, snapshot);
+    registration.unregister();
+  });
 });

@@ -5,12 +5,14 @@ import type {
   HistoryQuery,
   RecoveryChoice,
   RecoveryResult,
+  SegmentValidationError,
   SessionSnapshot,
   TimeSegment,
 } from '../../shared/domain/types';
 import { IPC } from './channels';
 
 type Handler = (event: unknown, ...args: unknown[]) => unknown;
+type SerializedIpcError = { code: string; message: string; fieldErrors?: SegmentValidationError[] };
 
 interface IpcMainLike {
   handle(channel: string, handler: Handler): void;
@@ -48,6 +50,89 @@ interface WindowActions {
   showMain(): void | Promise<void>;
   showMini(): void | Promise<void>;
   setAlwaysOnTop(value: boolean): boolean | Promise<boolean>;
+}
+
+const sessionWriteChannels = new Set<string>([
+  IPC.sessionStart,
+  IPC.sessionPause,
+  IPC.sessionResume,
+  IPC.sessionComplete,
+  IPC.sessionUpdateSettings,
+  IPC.sessionUpdateNote,
+  IPC.sessionEditSegments,
+  IPC.sessionRecovery,
+]);
+const serializedDomainErrorCodes = new Set([
+  'session-active-exists',
+  'session-not-found',
+  'session-invalid-state',
+  'validation-error',
+  'export-cancelled',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function serializeFieldErrors(value: unknown): SegmentValidationError[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.flatMap((fieldError) => {
+    if (!isRecord(fieldError)) {
+      return [];
+    }
+
+    const serialized: Record<string, string | number> = {};
+    for (const key of ['code', 'segmentIndex', 'field', 'message']) {
+      const field = fieldError[key];
+      if (typeof field === 'string' || typeof field === 'number') {
+        serialized[key] = field;
+      }
+    }
+    if (typeof serialized.code !== 'string' || typeof serialized.segmentIndex !== 'number' || typeof serialized.message !== 'string') {
+      return [];
+    }
+
+    return [{
+      code: serialized.code as SegmentValidationError['code'],
+      segmentIndex: serialized.segmentIndex,
+      ...(typeof serialized.field === 'string' ? { field: serialized.field as SegmentValidationError['field'] } : {}),
+      message: serialized.message,
+    }];
+  });
+}
+
+function serializeError(error: unknown): SerializedIpcError {
+  if (
+    isRecord(error)
+    && typeof error.code === 'string'
+    && serializedDomainErrorCodes.has(error.code)
+    && typeof error.message === 'string'
+  ) {
+    const fieldErrors = serializeFieldErrors(error.fieldErrors);
+    return fieldErrors ? { code: error.code, message: error.message, fieldErrors } : { code: error.code, message: error.message };
+  }
+
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'active session already exists') {
+    return { code: 'session-active-exists', message };
+  }
+  if (message === 'active session does not exist') {
+    return { code: 'session-not-found', message };
+  }
+  if (message === 'CSV export cancelled') {
+    return { code: 'export-cancelled', message };
+  }
+  if (message === 'Invalid sessions cannot be edited' || message.startsWith('Operation is not allowed for session state ')) {
+    return { code: 'session-invalid-state', message };
+  }
+  if (error instanceof RangeError) {
+    return { code: 'validation-error', message };
+  }
+
+  return { code: 'internal-error', message: 'An internal error occurred.' };
 }
 
 export interface IpcDependencies {
@@ -88,7 +173,20 @@ export function registerIpc(dependencies: IpcDependencies): IpcRegistration {
   };
 
   for (const [channel, handler] of Object.entries(handlers)) {
-    ipcMain.handle(channel, async (event, ...args) => handler(event, ...args));
+    ipcMain.handle(channel, async (event, ...args) => {
+      try {
+        const result = await handler(event, ...args);
+        if (sessionWriteChannels.has(channel)) {
+          const snapshot = channel === IPC.sessionRecovery
+            ? (result as RecoveryResult).snapshot
+            : result as SessionSnapshot;
+          registration.broadcastSnapshot(snapshot);
+        }
+        return result;
+      } catch (error) {
+        return Promise.reject(serializeError(error));
+      }
+    });
   }
 
   const unregister = (): void => {

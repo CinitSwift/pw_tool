@@ -10,6 +10,8 @@ import {
   createMiniWindowOptions,
 } from '../../../src/main/windows/mini-window';
 import { createTrayController, createTrayMenuTemplate } from '../../../src/main/tray';
+import { createDatabase } from '../../../src/main/db/database';
+import { SessionRepository } from '../../../src/main/db/repositories';
 import {
   acquireSingleInstance,
   createWindowManager,
@@ -36,6 +38,8 @@ function createWindow(overrides: Partial<BrowserWindowLike> = {}): BrowserWindow
     webContents: {
       on: vi.fn(),
       setWindowOpenHandler: vi.fn(),
+      send: vi.fn(),
+      isDestroyed: vi.fn(() => false),
     },
     ...overrides,
   };
@@ -158,6 +162,61 @@ describe('window manager', () => {
     expect(manager.setMiniAlwaysOnTop(false)).toBe(false);
     expect(mini.setAlwaysOnTop).toHaveBeenLastCalledWith(false);
     expect(dependencies.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ miniAlwaysOnTop: false }));
+  });
+
+  it('loads and saves window settings through the SQLite app_settings repository', () => {
+    const db = createDatabase(':memory:');
+    const repository = new SessionRepository(db);
+    repository.saveSettings({
+      billingMode: '15-step',
+      hourlyRateYuan: 40,
+      hourlyCommissionYuan: 3,
+      miniAlwaysOnTop: true,
+      mainWindowBounds: { x: 80, y: 90, width: 720, height: 620 },
+    });
+    const main = createWindow({ getBounds: vi.fn(() => ({ x: 120, y: 130, width: 720, height: 620 })) });
+    const mini = createWindow();
+    const manager = createWindowManager({
+      createMainWindow: vi.fn(() => main),
+      createMiniWindow: vi.fn(() => mini),
+      getSettings: () => repository.getSettings(),
+      saveSettings: (settings) => repository.saveSettings(settings),
+      getScreenWorkAreas: () => [{ x: 0, y: 0, width: 1440, height: 900 }],
+    });
+
+    manager.createMainWindow();
+    manager.createMiniWindow();
+    expect(mini.setAlwaysOnTop).toHaveBeenCalledWith(true);
+
+    const moveHandler = vi.mocked(main.on).mock.calls.find(([event]) => event === 'move')?.[1] as () => void;
+    moveHandler();
+    manager.setMiniAlwaysOnTop(false);
+
+    expect(repository.getSettings()).toMatchObject({
+      miniAlwaysOnTop: false,
+      mainWindowBounds: { x: 120, y: 130, width: 720, height: 620 },
+    });
+    db.close();
+  });
+
+  it('returns snapshot targets only for live main and mini windows', () => {
+    const main = createWindow();
+    const mini = createWindow();
+    const { dependencies } = createDependencies({
+      createMainWindow: vi.fn(() => main),
+      createMiniWindow: vi.fn(() => mini),
+    });
+    const manager = createWindowManager(dependencies);
+
+    manager.createMainWindow();
+    manager.createMiniWindow();
+    expect(manager.getSnapshotTargets()).toEqual([main.webContents, mini.webContents]);
+
+    vi.mocked(main.isDestroyed).mockReturnValue(true);
+    expect(manager.getSnapshotTargets()).toEqual([mini.webContents]);
+
+    vi.mocked(mini.webContents.isDestroyed).mockReturnValue(true);
+    expect(manager.getSnapshotTargets()).toEqual([]);
   });
 
   it('falls back to centered bounds when saved bounds are not visible', () => {

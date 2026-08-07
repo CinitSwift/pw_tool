@@ -14,6 +14,8 @@ export interface WindowWorkArea extends WindowBounds {}
 export interface WebContentsLike {
   on(event: 'will-navigate', handler: (event: { preventDefault(): void }, url: string) => void): void;
   setWindowOpenHandler(handler: () => { action: 'deny' }): void;
+  send(channel: string, ...args: unknown[]): void;
+  isDestroyed(): boolean;
 }
 
 export interface BrowserWindowLike {
@@ -128,6 +130,7 @@ export interface WindowManager {
   isQuitting(): boolean;
   getMainWindow(): BrowserWindowLike | null;
   getMiniWindow(): BrowserWindowLike | null;
+  getSnapshotTargets(): WebContentsLike[];
 }
 
 export interface SingleInstanceAppLike {
@@ -264,6 +267,10 @@ export function createWindowManager(dependencies: WindowManagerDependencies): Wi
     isQuitting: () => quitting,
     getMainWindow: () => mainWindow,
     getMiniWindow: () => miniWindow,
+    getSnapshotTargets: () => [mainWindow, miniWindow]
+      .filter((window): window is BrowserWindowLike => window !== null && !window.isDestroyed())
+      .map((window) => window.webContents)
+      .filter((webContents) => !webContents.isDestroyed()),
   };
 }
 

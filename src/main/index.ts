@@ -1,9 +1,14 @@
-import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, screen } from 'electron';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { IPC } from './ipc/channels';
 import { createTrayController, createTrayMenuTemplate, configureTray, type TrayLike } from './tray';
+import { createDatabase } from './db/database';
+import { SessionRepository } from './db/repositories';
+import { ExportService } from './services/export-service';
+import { SessionService } from './services/session-service';
+import { SettingsService } from './services/settings-service';
+import { registerIpc, type IpcRegistration } from './ipc/register-ipc';
 import { createWindowFocusController } from './window-policy';
 import {
   acquireSingleInstance,
@@ -12,42 +17,17 @@ import {
   type BrowserWindowLike,
   type WindowManager,
 } from './windows/main-window';
-import type { AppSettings } from '../shared/domain/types';
-
-const defaultSettings: AppSettings = {
-  billingMode: '15-step',
-  hourlyRateYuan: 40,
-  hourlyCommissionYuan: 3,
-  miniAlwaysOnTop: false,
-};
-
-function createSettingsStore(filename: string) {
-  let settings = defaultSettings;
-  try {
-    settings = { ...defaultSettings, ...JSON.parse(readFileSync(filename, 'utf8')) } as AppSettings;
-  } catch {
-    // A missing or invalid UI settings file falls back to safe defaults.
-  }
-  return {
-    get(): AppSettings {
-      return { ...settings };
-    },
-    save(next: AppSettings): void {
-      settings = { ...next };
-      writeFileSync(filename, JSON.stringify(settings), 'utf8');
-    },
-  };
-}
-
-function createElectronWindowManager(windowFocusController: ReturnType<typeof createWindowFocusController>): WindowManager {
+function createElectronWindowManager(
+  windowFocusController: ReturnType<typeof createWindowFocusController>,
+  repository: SessionRepository,
+): WindowManager {
   const rendererFile = join(__dirname, '../renderer/index.html');
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  const settingsStore = createSettingsStore(join(app.getPath('userData'), 'window-settings.json'));
   return createWindowManager({
     createMainWindow: (options) => new BrowserWindow(options) as unknown as BrowserWindowLike,
     createMiniWindow: (options) => new BrowserWindow(options) as unknown as BrowserWindowLike,
-    getSettings: settingsStore.get,
-    saveSettings: settingsStore.save,
+    getSettings: () => repository.getSettings(),
+    saveSettings: (settings) => repository.saveSettings(settings),
     getScreenWorkAreas: () => screen.getAllDisplays().map((display) => display.workArea),
     configureSecurity: configureWindow,
     loadRenderer: (window) => {
@@ -65,22 +45,15 @@ function createElectronWindowManager(windowFocusController: ReturnType<typeof cr
   });
 }
 
-function registerWindowIpc(windowManager: WindowManager): void {
-  ipcMain.handle(IPC.windowShowMain, () => windowManager.showMainWindow());
-  ipcMain.handle(IPC.windowShowMini, () => windowManager.showMiniWindow());
-  ipcMain.handle(IPC.windowSetAlwaysOnTop, (_event, value: unknown) => {
-    if (typeof value !== 'boolean') {
-      throw new TypeError('always-on-top value must be boolean');
-    }
-    return windowManager.setMiniAlwaysOnTop(value);
-  });
-}
-
-function createApplication(windowManager: WindowManager): void {
+function createApplication(windowManager: WindowManager): () => void {
   let tray: TrayLike | null = null;
+  const destroyTray = (): void => {
+    tray?.destroy();
+    tray = null;
+  };
   const quitController = createTrayController({
     tray: {
-      destroy: () => tray?.destroy(),
+      destroy: destroyTray,
       setContextMenu: () => undefined,
       setToolTip: () => undefined,
       on: () => undefined,
@@ -100,8 +73,8 @@ function createApplication(windowManager: WindowManager): void {
     showMini: () => windowManager.showMiniWindow(),
     quit: () => quitController.quit(),
   });
-  registerWindowIpc(windowManager);
   windowManager.createMainWindow();
+  return destroyTray;
 }
 
 if (process.env.ELECTRON_USER_DATA_DIR) {
@@ -119,8 +92,37 @@ if (acquireSingleInstance(app, () => {
   }
 })) {
   app.whenReady().then(() => {
-    windowManager = createElectronWindowManager(windowFocusController);
-    createApplication(windowManager);
+    const database = createDatabase(join(app.getPath('userData'), 'pw-tool.sqlite3'));
+    const repository = new SessionRepository(database);
+    windowManager = createElectronWindowManager(windowFocusController, repository);
+    const session = new SessionService(repository);
+    const settings = new SettingsService(repository);
+    const exportService = new ExportService(
+      repository,
+      async () => {
+        const result = await dialog.showSaveDialog({ defaultPath: '陪玩小工具.csv' });
+        return result.canceled ? null : result.filePath;
+      },
+      (filePath, contents) => writeFile(filePath, contents, 'utf8'),
+    );
+    const registration: IpcRegistration = registerIpc({
+      ipcMain,
+      session,
+      history: { list: (input) => repository.list(input), delete: (id) => repository.delete(id), exportCsv: (input) => exportService.exportCsv(input) },
+      settings,
+      window: {
+        showMain: () => windowManager?.showMainWindow(),
+        showMini: () => windowManager?.showMiniWindow(),
+        setAlwaysOnTop: (value) => windowManager?.setMiniAlwaysOnTop(value) ?? false,
+      },
+      snapshotTargets: () => windowManager?.getSnapshotTargets() ?? [],
+    });
+    const destroyTray = createApplication(windowManager);
+    app.once('before-quit', () => {
+      registration.unregister();
+      destroyTray();
+      database.close();
+    });
     app.on('activate', () => windowManager?.showMainWindow());
   });
 }

@@ -5,11 +5,25 @@ import { ExportService, serializeSessionsToCsv } from '../../../src/main/service
 import { SessionService } from '../../../src/main/services/session-service';
 import { SettingsService } from '../../../src/main/services/settings-service';
 import type { Session } from '../../../src/shared/domain/session-machine';
-import type { AppSettings, SessionSnapshot } from '../../../src/shared/domain/types';
+import type { AppSettings, SegmentValidationError, SessionSnapshot } from '../../../src/shared/domain/types';
+import { IpcDomainError } from '../../../src/shared/ipc-errors';
 import { buildSession, defaultSettings } from '../../fixtures/domain';
 import { InMemoryRepository } from '../../fixtures/in-memory-repository';
 
 const SECOND = 1_000;
+const IPC_ERROR_PREFIX = 'PW_TOOL_IPC_ERROR:';
+
+function decodeIpcError(error: unknown): { code: string; message: string; fieldErrors?: unknown[] } {
+  expect(error).toBeInstanceOf(Error);
+  const message = (error as Error).message;
+  const payloadStart = message.indexOf(IPC_ERROR_PREFIX);
+  expect(payloadStart).toBeGreaterThanOrEqual(0);
+  return JSON.parse(message.slice(payloadStart + IPC_ERROR_PREFIX.length)) as {
+    code: string;
+    message: string;
+    fieldErrors?: unknown[];
+  };
+}
 
 function runningSession(overrides: Partial<Session> = {}): Session {
   return buildSession({
@@ -389,7 +403,7 @@ describe('registerIpc', () => {
     registration.unregister();
   });
 
-  it('rejects handler errors as plain structured errors with stable domain codes', async () => {
+  it('rejects handlers with encoded Error payloads and exposes only trusted messages', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     const ipcMain = {
       handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
@@ -418,22 +432,20 @@ describe('registerIpc', () => {
 
     const registration = registerIpc(dependencies);
 
-    const domainResult = await Promise.resolve(handlers.get(IPC.sessionStart)?.({})).catch((error: unknown) => error);
-    expect(domainResult).toEqual({
+    const domainErrorResult = await Promise.resolve(handlers.get(IPC.sessionStart)?.({})).catch((error: unknown) => error);
+    expect(decodeIpcError(domainErrorResult)).toEqual({
       code: 'session-active-exists',
       message: 'active session already exists',
     });
-    expect(domainResult).not.toBeInstanceOf(Error);
 
     dependencies.session.start = () => {
       throw new Error('database connection secret');
     };
     const internalResult = await Promise.resolve(handlers.get(IPC.sessionStart)?.({})).catch((error: unknown) => error);
-    expect(internalResult).toEqual({
+    expect(decodeIpcError(internalResult)).toEqual({
       code: 'internal-error',
       message: 'An internal error occurred.',
     });
-    expect(internalResult).not.toBeInstanceOf(Error);
 
     dependencies.session.start = () => {
       throw {
@@ -444,7 +456,26 @@ describe('registerIpc', () => {
         Event: { sender: 'private event' },
       };
     };
-    await expect(handlers.get(IPC.sessionStart)?.({})).rejects.toEqual({
+    const databaseResult = await Promise.resolve(handlers.get(IPC.sessionStart)?.({})).catch((error: unknown) => error);
+    expect(decodeIpcError(databaseResult)).toEqual({
+      code: 'internal-error',
+      message: 'An internal error occurred.',
+    });
+
+    dependencies.session.start = () => {
+      throw new RangeError('secret range details');
+    };
+    const rangeResult = await Promise.resolve(handlers.get(IPC.sessionStart)?.({})).catch((error: unknown) => error);
+    expect(decodeIpcError(rangeResult)).toEqual({
+      code: 'internal-error',
+      message: 'An internal error occurred.',
+    });
+
+    dependencies.session.start = () => {
+      throw { code: 'validation-error', message: 'forged validation secret' };
+    };
+    const forgedResult = await Promise.resolve(handlers.get(IPC.sessionStart)?.({})).catch((error: unknown) => error);
+    expect(decodeIpcError(forgedResult)).toEqual({
       code: 'internal-error',
       message: 'An internal error occurred.',
     });
@@ -452,13 +483,13 @@ describe('registerIpc', () => {
     registration.unregister();
   });
 
-  it('preserves serializable field errors while rejecting a domain validation error', async () => {
+  it('preserves serializable field errors only for an explicit trusted IPC domain error', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     const ipcMain = {
       handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
       removeHandler: (channel: string) => handlers.delete(channel),
     };
-    const fieldErrors = [{ code: 'open-segment', segmentIndex: 0, field: 'endedAt', message: 'segment is open' }];
+    const fieldErrors: SegmentValidationError[] = [{ code: 'open-segment', segmentIndex: 0, field: 'endedAt', message: 'segment is open' }];
     const dependencies = {
       ipcMain,
       session: {
@@ -469,7 +500,7 @@ describe('registerIpc', () => {
         complete: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
         updateSettings: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
         updateNote: () => {
-          throw { code: 'validation-error', message: 'Invalid note', fieldErrors };
+          throw new IpcDomainError('validation-error', 'Invalid note', fieldErrors);
         },
         editSegments: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
         handleRecovery: () => ({ snapshot: ({ marker: 'snapshot' }) as unknown as SessionSnapshot }),
@@ -481,7 +512,8 @@ describe('registerIpc', () => {
 
     const registration = registerIpc(dependencies);
 
-    await expect(handlers.get(IPC.sessionUpdateNote)?.({}, 'note')).rejects.toEqual({
+    const result = await Promise.resolve(handlers.get(IPC.sessionUpdateNote)?.({}, 'note')).catch((error: unknown) => error);
+    expect(decodeIpcError(result)).toEqual({
       code: 'validation-error',
       message: 'Invalid note',
       fieldErrors,
@@ -587,6 +619,75 @@ describe('registerIpc', () => {
 
     await expect(handlers.get(IPC.sessionRecovery)?.({}, 'restart-new-session')).resolves.toMatchObject({ snapshot });
     expect(send).toHaveBeenCalledWith(IPC.sessionSnapshot, snapshot);
+    registration.unregister();
+  });
+
+  it('isolates snapshot target failures from other targets and session writes', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const ipcMain = {
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
+      removeHandler: (channel: string) => handlers.delete(channel),
+    };
+    const snapshot = { marker: 'committed-snapshot' } as unknown as SessionSnapshot;
+    const failingSend = vi.fn(() => {
+      throw new Error('destroyed target');
+    });
+    const healthySend = vi.fn();
+    const registration = registerIpc({
+      ipcMain,
+      session: {
+        getSnapshot: () => snapshot,
+        start: () => snapshot,
+        pause: () => snapshot,
+        resume: () => snapshot,
+        complete: () => snapshot,
+        updateSettings: () => snapshot,
+        updateNote: () => snapshot,
+        editSegments: () => snapshot,
+        handleRecovery: () => ({ snapshot }),
+      },
+      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
+      window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
+      snapshotTargets: () => [{ send: failingSend }, { send: healthySend }],
+    });
+
+    await expect(handlers.get(IPC.sessionStart)?.({})).resolves.toBe(snapshot);
+    expect(failingSend).toHaveBeenCalledWith(IPC.sessionSnapshot, snapshot);
+    expect(healthySend).toHaveBeenCalledWith(IPC.sessionSnapshot, snapshot);
+    registration.unregister();
+  });
+
+  it('isolates snapshot target discovery failures from session writes', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const ipcMain = {
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
+      removeHandler: (channel: string) => handlers.delete(channel),
+    };
+    const snapshot = { marker: 'committed-snapshot' } as unknown as SessionSnapshot;
+    const registration = registerIpc({
+      ipcMain,
+      session: {
+        getSnapshot: () => snapshot,
+        start: () => snapshot,
+        pause: () => snapshot,
+        resume: () => snapshot,
+        complete: () => snapshot,
+        updateSettings: () => snapshot,
+        updateNote: () => snapshot,
+        editSegments: () => snapshot,
+        handleRecovery: () => ({ snapshot }),
+      },
+      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
+      window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
+      snapshotTargets: () => {
+        throw new Error('target discovery failed');
+      },
+    });
+
+    await expect(handlers.get(IPC.sessionStart)?.({})).resolves.toBe(snapshot);
+    expect(() => registration.broadcastSnapshot(snapshot)).not.toThrow();
     registration.unregister();
   });
 });

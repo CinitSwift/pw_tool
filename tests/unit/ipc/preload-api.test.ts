@@ -5,6 +5,7 @@ const exposeInMainWorld = vi.fn();
 const invoke = vi.fn();
 const on = vi.fn();
 const removeListener = vi.fn();
+const IPC_ERROR_PREFIX = 'PW_TOOL_IPC_ERROR:';
 
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld },
@@ -94,5 +95,57 @@ describe('preload API', () => {
     expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ secretEvent: true }), snapshot);
     unsubscribe();
     expect(removeListener).toHaveBeenCalledWith(IPC.sessionSnapshot, wrappedListener);
+  });
+
+  it('decodes structured IPC errors from Electron-prefixed messages', async () => {
+    const fieldErrors = [{ code: 'open-segment', segmentIndex: 0, field: 'endedAt', message: 'segment is open' }];
+    invoke.mockRejectedValue(new Error(
+      `Error invoking remote method 'session:update-note': Error: ${IPC_ERROR_PREFIX}${JSON.stringify({
+        code: 'validation-error',
+        message: 'Invalid note',
+        fieldErrors,
+      })}`,
+    ));
+    await import('../../../src/preload/index');
+    const api = exposeInMainWorld.mock.calls[0][1];
+
+    await expect(api.session.updateNote('note')).rejects.toEqual({
+      code: 'validation-error',
+      message: 'Invalid note',
+      fieldErrors,
+    });
+  });
+
+  it('normalizes unknown Electron errors for every invoke API without leaking details', async () => {
+    invoke.mockRejectedValue(new Error('Error invoking remote method: database connection secret'));
+    await import('../../../src/preload/index');
+    const api = exposeInMainWorld.mock.calls[0][1];
+    const calls = [
+      () => api.session.getSnapshot(),
+      () => api.session.start(),
+      () => api.session.pause(),
+      () => api.session.resume(),
+      () => api.session.complete(),
+      () => api.session.updateSettings({ billingMode: 'minute', hourlyRateYuan: 40, hourlyCommissionYuan: 3 }),
+      () => api.session.updateNote('note'),
+      () => api.session.editSegments([]),
+      () => api.session.recover('restore'),
+      () => api.history.list({}),
+      () => api.history.delete('session-1'),
+      () => api.history.exportCsv({}),
+      () => api.settings.get(),
+      () => api.settings.save({ billingMode: 'minute', hourlyRateYuan: 40, hourlyCommissionYuan: 3, miniAlwaysOnTop: false }),
+      () => api.window.showMain(),
+      () => api.window.showMini(),
+      () => api.window.setAlwaysOnTop(true),
+    ];
+
+    for (const call of calls) {
+      await expect(call()).rejects.toEqual({
+        code: 'internal-error',
+        message: 'An internal error occurred.',
+      });
+    }
+    expect(invoke).toHaveBeenCalledTimes(17);
   });
 });

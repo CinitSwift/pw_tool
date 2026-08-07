@@ -9,10 +9,14 @@ import type {
   SessionSnapshot,
   TimeSegment,
 } from '../../shared/domain/types';
+import {
+  IPC_ERROR_PREFIX,
+  IpcDomainError,
+  type SerializedIpcError,
+} from '../../shared/ipc-errors';
 import { IPC } from './channels';
 
 type Handler = (event: unknown, ...args: unknown[]) => unknown;
-type SerializedIpcError = { code: string; message: string; fieldErrors?: SegmentValidationError[] };
 
 interface IpcMainLike {
   handle(channel: string, handler: Handler): void;
@@ -62,14 +66,6 @@ const sessionWriteChannels = new Set<string>([
   IPC.sessionEditSegments,
   IPC.sessionRecovery,
 ]);
-const serializedDomainErrorCodes = new Set([
-  'session-active-exists',
-  'session-not-found',
-  'session-invalid-state',
-  'validation-error',
-  'export-cancelled',
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -105,12 +101,7 @@ function serializeFieldErrors(value: unknown): SegmentValidationError[] | undefi
 }
 
 function serializeError(error: unknown): SerializedIpcError {
-  if (
-    isRecord(error)
-    && typeof error.code === 'string'
-    && serializedDomainErrorCodes.has(error.code)
-    && typeof error.message === 'string'
-  ) {
+  if (error instanceof IpcDomainError) {
     const fieldErrors = serializeFieldErrors(error.fieldErrors);
     return fieldErrors ? { code: error.code, message: error.message, fieldErrors } : { code: error.code, message: error.message };
   }
@@ -128,10 +119,6 @@ function serializeError(error: unknown): SerializedIpcError {
   if (message === 'Invalid sessions cannot be edited' || message.startsWith('Operation is not allowed for session state ')) {
     return { code: 'session-invalid-state', message };
   }
-  if (error instanceof RangeError) {
-    return { code: 'validation-error', message };
-  }
-
   return { code: 'internal-error', message: 'An internal error occurred.' };
 }
 
@@ -184,7 +171,7 @@ export function registerIpc(dependencies: IpcDependencies): IpcRegistration {
         }
         return result;
       } catch (error) {
-        return Promise.reject(serializeError(error));
+        throw new Error(`${IPC_ERROR_PREFIX}${JSON.stringify(serializeError(error))}`);
       }
     });
   }
@@ -197,8 +184,18 @@ export function registerIpc(dependencies: IpcDependencies): IpcRegistration {
   const registration = unregister as IpcRegistration;
   registration.unregister = unregister;
   registration.broadcastSnapshot = (snapshot): void => {
-    for (const target of dependencies.snapshotTargets?.() ?? []) {
-      target.send(IPC.sessionSnapshot, snapshot);
+    let targets: SnapshotTarget[];
+    try {
+      targets = dependencies.snapshotTargets?.() ?? [];
+    } catch {
+      return;
+    }
+    for (const target of targets) {
+      try {
+        target.send(IPC.sessionSnapshot, snapshot);
+      } catch {
+        // A destroyed renderer must not affect other subscribers or the write result.
+      }
     }
   };
   return registration;

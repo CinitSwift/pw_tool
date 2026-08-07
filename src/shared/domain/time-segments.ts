@@ -9,6 +9,13 @@ const MAX_DATE_MS = 8_640_000_000_000_000;
 const MILLISECONDS_PER_SECOND = 1_000;
 const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 
+export class SegmentValidationFailure extends RangeError {
+  constructor(readonly fieldErrors: SegmentValidationError[]) {
+    super(fieldErrors.map((error) => error.message).join(' '));
+    this.name = 'SegmentValidationFailure';
+  }
+}
+
 function isRepresentableTimestamp(value: number): boolean {
   return Number.isSafeInteger(value) && Math.abs(value) <= MAX_DATE_MS;
 }

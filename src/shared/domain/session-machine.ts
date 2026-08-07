@@ -1,5 +1,5 @@
 import { calculateFeeResult } from './billing';
-import { calculateEffectiveSeconds, validateSegments } from './time-segments';
+import { calculateEffectiveSeconds, SegmentValidationFailure, validateSegments } from './time-segments';
 import type { BillingSettings, FeeResult, TimeSegment } from './types';
 import type { SessionStatus } from './types';
 
@@ -56,7 +56,7 @@ function cloneSession(session: Session): Session {
 function assertValidSegments(status: SessionStatus, segments: TimeSegment[], nowMs: number): void {
   const validation = validateSegments({ status, segments }, nowMs);
   if (!validation.valid) {
-    throw new RangeError(validation.errors.map((error) => error.message).join(' '));
+    throw new SegmentValidationFailure(validation.errors);
   }
 }
 

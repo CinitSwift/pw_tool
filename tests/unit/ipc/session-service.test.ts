@@ -4,6 +4,7 @@ import { registerIpc } from '../../../src/main/ipc/register-ipc';
 import { ExportService, serializeSessionsToCsv } from '../../../src/main/services/export-service';
 import { SessionService } from '../../../src/main/services/session-service';
 import { SettingsService } from '../../../src/main/services/settings-service';
+import { createPwToolApi } from '../../../src/preload/api';
 import type { Session } from '../../../src/shared/domain/session-machine';
 import type { AppSettings, SegmentValidationError, SessionSnapshot } from '../../../src/shared/domain/types';
 import { IpcDomainError } from '../../../src/shared/ipc-errors';
@@ -256,20 +257,46 @@ describe('SessionService', () => {
     expect(repository.insertCount).toBe(1);
   });
 
-  it('maps snapshot calculation failures to serializable snapshot errors', () => {
-    const malformed = runningSession({ segments: [{ startedAt: SECOND, endedAt: 2 * SECOND }] });
-    const { service } = createService({
-      repository: new InMemoryRepository({ sessions: [malformed] }),
-      now: 3 * SECOND,
+  it('maps unknown snapshot calculation failures to a fixed safe error', () => {
+    const repository = new InMemoryRepository({ sessions: [runningSession()] });
+    const service = new SessionService(repository, () => {
+      throw new RangeError('runtime secret: clock source failed');
     });
 
     const snapshot = service.getSnapshot();
 
     expect(snapshot.error).toEqual({
-      code: 'session-snapshot-error',
-      message: 'A running session must have an open final segment',
+      code: 'internal-error',
+      message: 'An internal error occurred.',
     });
     expect(snapshot.error).not.toBeInstanceOf(Error);
+  });
+
+  it('keeps the known clock-skew runtime error stable in a service snapshot', () => {
+    const { service } = createService({
+      repository: new InMemoryRepository({ sessions: [runningSession({ segments: [{ startedAt: 61 * SECOND, endedAt: null }] })] }),
+      now: SECOND,
+    });
+
+    expect(service.getSnapshot().runtime.error).toEqual({
+      code: 'clock-skew',
+      message: 'Current time is earlier than the open segment start time.',
+    });
+  });
+
+  it('maps repository snapshot failures to a fixed safe error', () => {
+    const repository = new InMemoryRepository();
+    repository.findActive = () => {
+      throw new Error('database secret: /private/app.sqlite');
+    };
+    const { service } = createService({ repository });
+
+    expect(service.getSnapshot()).toMatchObject({
+      session: null,
+      runtime: { status: 'idle' },
+      recoveryRequired: false,
+      error: { code: 'internal-error', message: 'An internal error occurred.' },
+    });
   });
 });
 
@@ -320,6 +347,64 @@ describe('ExportService', () => {
 });
 
 describe('registerIpc', () => {
+  it('preserves real editSegments validation details through IPC and preload parsing', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const ipcMain = {
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler),
+      removeHandler: (channel: string) => handlers.delete(channel),
+    };
+    const repository = new InMemoryRepository({ sessions: [runningSession()] });
+    const session = new SessionService(repository, () => 121 * SECOND);
+    const registration = registerIpc({
+      ipcMain,
+      session,
+      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
+      window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
+    });
+    const api = createPwToolApi({
+      invoke: (channel, ...args) => Promise.resolve(handlers.get(channel)?.({}, ...args)),
+      on: () => undefined,
+      removeListener: () => undefined,
+    });
+
+    await expect(api.session.editSegments([
+      { sequence: 0, startedAt: SECOND, endedAt: 61 * SECOND },
+      { sequence: 1, startedAt: Number.MAX_SAFE_INTEGER + 1, endedAt: 70 * SECOND },
+      { sequence: 2, startedAt: 30 * SECOND, endedAt: 200 * SECOND },
+    ])).rejects.toEqual({
+      code: 'validation-error',
+      message: 'The time segments are invalid.',
+      fieldErrors: [
+        {
+          code: 'invalid-date',
+          segmentIndex: 1,
+          field: 'startedAt',
+          message: 'Time must be a representable integer millisecond timestamp.',
+        },
+        {
+          code: 'future-time',
+          segmentIndex: 2,
+          field: 'endedAt',
+          message: 'Time cannot be later than the current time.',
+        },
+        {
+          code: 'overlap',
+          segmentIndex: 2,
+          field: 'startedAt',
+          message: 'Segment start time cannot be earlier than the previous segment end time.',
+        },
+        {
+          code: 'open-segment',
+          segmentIndex: 2,
+          field: 'endedAt',
+          message: 'A running session must have exactly one open final segment.',
+        },
+      ],
+    });
+    registration.unregister();
+  });
+
   it('registers only the fixed handlers, delegates actions, and unregisters cleanly', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     const ipcMain = {

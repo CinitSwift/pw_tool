@@ -11,6 +11,7 @@ import {
 } from '../../shared/domain/session-machine';
 import type { Session } from '../../shared/domain/session-machine';
 import { getRuntimeSnapshot } from '../../shared/domain/runtime-snapshot';
+import { SegmentValidationFailure } from '../../shared/domain/time-segments';
 import type {
   AppSettings,
   BillingSettings,
@@ -19,6 +20,7 @@ import type {
   SessionSnapshot,
   TimeSegment,
 } from '../../shared/domain/types';
+import { IpcDomainError } from '../../shared/ipc-errors';
 
 export interface SessionServiceRepository {
   findActive(): Session | null;
@@ -28,8 +30,19 @@ export interface SessionServiceRepository {
   transaction<T>(work: () => T): T;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+const INTERNAL_SNAPSHOT_ERROR = {
+  code: 'internal-error',
+  message: 'An internal error occurred.',
+} as const;
+
+function toValidationError(error: unknown, message: string): never {
+  if (error instanceof SegmentValidationFailure) {
+    throw new IpcDomainError('validation-error', message, error.fieldErrors);
+  }
+  if (error instanceof RangeError) {
+    throw new IpcDomainError('validation-error', message);
+  }
+  throw error;
 }
 
 export class SessionService {
@@ -42,14 +55,19 @@ export class SessionService {
   ) {}
 
   getSnapshot(): SessionSnapshot {
-    const active = this.repository.findActive();
-    if (!active) {
-      this.recoveryPending = false;
-      return this.snapshot(null, false);
-    }
+    try {
+      const active = this.repository.findActive();
+      if (!active) {
+        this.recoveryPending = false;
+        return this.snapshot(null, false);
+      }
 
-    this.recoveryPending ??= true;
-    return this.snapshot(active, this.recoveryPending);
+      this.recoveryPending ??= true;
+      return this.snapshot(active, this.recoveryPending);
+    } catch {
+      this.recoveryPending = false;
+      return this.internalErrorSnapshot(null, false);
+    }
   }
 
   start(): SessionSnapshot {
@@ -80,15 +98,21 @@ export class SessionService {
   }
 
   updateSettings(settings: BillingSettings): SessionSnapshot {
-    return this.update((session, nowMs) => updateSessionSettings(session, settings, nowMs));
+    return this.update(
+      (session, nowMs) => updateSessionSettings(session, settings, nowMs),
+      'The billing settings are invalid.',
+    );
   }
 
   updateNote(note: string): SessionSnapshot {
-    return this.update((session) => updateSessionNote(session, note));
+    return this.update((session) => updateSessionNote(session, note), 'The note is invalid.');
   }
 
   editSegments(segments: TimeSegment[]): SessionSnapshot {
-    return this.update((session, nowMs) => editSessionSegments(session, segments, nowMs));
+    return this.update(
+      (session, nowMs) => editSessionSegments(session, segments, nowMs),
+      'The time segments are invalid.',
+    );
   }
 
   handleRecovery(choice: RecoveryChoice): RecoveryResult {
@@ -130,8 +154,21 @@ export class SessionService {
     return active;
   }
 
-  private update(transform: (session: Session, nowMs: number) => Session): SessionSnapshot {
-    const next = transform(this.requireActive(), this.clock());
+  private update(
+    transform: (session: Session, nowMs: number) => Session,
+    validationMessage?: string,
+  ): SessionSnapshot {
+    const active = this.requireActive();
+    const nowMs = this.clock();
+    let next: Session;
+    try {
+      next = transform(active, nowMs);
+    } catch (error) {
+      if (validationMessage) {
+        toValidationError(error, validationMessage);
+      }
+      throw error;
+    }
     this.repository.transaction(() => this.repository.updateSession(next));
     this.recoveryPending = false;
     return this.snapshot(next, false);
@@ -141,13 +178,17 @@ export class SessionService {
     const nowMs = this.clock();
     try {
       return { session, runtime: getRuntimeSnapshot(session, nowMs), recoveryRequired };
-    } catch (error) {
-      return {
-        session,
-        runtime: getRuntimeSnapshot(null, nowMs),
-        recoveryRequired,
-        error: { code: 'session-snapshot-error', message: errorMessage(error) },
-      };
+    } catch {
+      return this.internalErrorSnapshot(session, recoveryRequired);
     }
+  }
+
+  private internalErrorSnapshot(session: Session | null, recoveryRequired: boolean): SessionSnapshot {
+    return {
+      session,
+      runtime: getRuntimeSnapshot(null, 0),
+      recoveryRequired,
+      error: INTERNAL_SNAPSHOT_ERROR,
+    };
   }
 }

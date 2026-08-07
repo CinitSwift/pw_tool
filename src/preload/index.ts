@@ -1,5 +1,4 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+import { createPwToolApi } from './api';
 
-contextBridge.exposeInMainWorld('pwTool', {
-  version: '0.0.0',
-});
+contextBridge.exposeInMainWorld('pwTool', createPwToolApi(ipcRenderer));

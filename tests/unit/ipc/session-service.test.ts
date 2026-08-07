@@ -54,6 +54,19 @@ function createService(input: {
 }
 
 describe('SessionService', () => {
+  it('accepts the default millisecond clock when starting a session', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_723_000_123_456);
+    try {
+      const repository = new InMemoryRepository();
+      const service = new SessionService(repository, undefined, () => 'default-clock-session');
+
+      expect(() => service.start()).not.toThrow();
+      expect(service.getSnapshot()).toMatchObject({ session: { status: 'running' } });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('returns an idle snapshot when there is no active session', () => {
     const { service } = createService();
 

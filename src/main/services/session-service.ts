@@ -50,7 +50,7 @@ export class SessionService {
 
   constructor(
     private readonly repository: SessionServiceRepository,
-    private readonly clock: () => number = Date.now,
+    private readonly clock: () => number = () => Math.floor(Date.now() / 1_000) * 1_000,
     private readonly createId: () => string = randomUUID,
   ) {}
 

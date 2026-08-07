@@ -27,7 +27,7 @@ export function PausedState({ snapshot, api }: TimerStateProps) {
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="state-actions"><button className="primary" onClick={() => void run('resume')} disabled={pending !== null}>{pending === 'resume' ? '正在继续…' : '继续计时'}</button><button className="secondary danger" onClick={() => void run('complete')} disabled={pending !== null}>{pending === 'complete' ? '正在结束…' : '结束本局'}</button></div>
       {noteOpen && <NoteDialog initialNote={session.note} onClose={() => setNoteOpen(false)} onSave={(note) => api.session.updateNote(note).then(() => undefined)} />}
-      {timeEditOpen && <TimeEditDialog segments={session.segments} onClose={() => setTimeEditOpen(false)} onSave={(segments) => api.session.editSegments(segments).then(() => undefined)} />}
+      {timeEditOpen && <TimeEditDialog onClose={() => setTimeEditOpen(false)} />}
       {settingsOpen && <div className="dialog-backdrop"><BillingSettingsPopover api={api} settings={session.settings} onClose={() => setSettingsOpen(false)} /></div>}
     </section>
   );

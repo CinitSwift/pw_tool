@@ -24,7 +24,7 @@ export function CompletedState({ snapshot, api }: TimerStateProps) {
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="state-actions completed-actions"><button className="secondary" onClick={() => setTimeEditOpen(true)}>调整时间</button><button className="secondary" disabled title="历史页将在后续任务接入">查看历史</button><button className="primary" onClick={() => void start()} disabled={pending}>{pending ? '正在开始…' : '开始新一局'}</button></div>
       {noteOpen && <NoteDialog initialNote={session.note} onClose={() => setNoteOpen(false)} onSave={(note) => api.session.updateNote(note).then(() => undefined)} />}
-      {timeEditOpen && <TimeEditDialog segments={session.segments} onClose={() => setTimeEditOpen(false)} onSave={(segments) => api.session.editSegments(segments).then(() => undefined)} />}
+      {timeEditOpen && <TimeEditDialog onClose={() => setTimeEditOpen(false)} />}
     </section>
   );
 }

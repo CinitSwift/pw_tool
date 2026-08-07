@@ -61,32 +61,18 @@ describe('TimerPage states', () => {
     expect(api.session.pause).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: '结束本局' })).toBeVisible();
     expect(screen.getByRole('button', { name: '调整时间' })).toBeVisible();
+    expect(screen.getByText(/本段已计/)).toBeVisible();
   });
 
-  it('opens time editing and submits updated segments', async () => {
-    api.session.editSegments.mockResolvedValue(pausedSnapshot);
+  it('shows a non-editing time adjustment entry point', () => {
     render(<PausedState snapshot={pausedSnapshot} api={api as never} />);
 
     fireEvent.click(screen.getByRole('button', { name: '调整时间' }));
     expect(screen.getByRole('dialog', { name: '调整时间' })).toBeVisible();
-    const startInput = screen.getByLabelText('开始时间');
-    fireEvent.change(startInput, { target: { value: '1970-01-01T08:00:01' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存时间' }));
-
-    await waitFor(() => expect(api.session.editSegments).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ startedAt: new Date('1970-01-01T08:00:01').getTime() }),
-    ])));
-  });
-
-  it('does not submit an invalid edited time range', () => {
-    render(<PausedState snapshot={pausedSnapshot} api={api as never} />);
-
-    fireEvent.click(screen.getByRole('button', { name: '调整时间' }));
-    fireEvent.change(screen.getByLabelText('开始时间'), { target: { value: '1970-01-01T08:02:00' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存时间' }));
-
+    expect(screen.getByText('完整的历史和时间编辑器将在后续任务接入。')).toBeVisible();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
     expect(api.session.editSegments).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('时间必须有效');
   });
 
   it('disables running actions while the clock is invalid', () => {

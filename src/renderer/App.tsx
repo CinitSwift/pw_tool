@@ -7,7 +7,9 @@ export default function App() {
   const [store] = useState(() => createRendererStore(window.pwTool));
   const state = useRendererState(store);
 
-  useEffect(() => store.start(), [store]);
+  useEffect(() => {
+    return store.start();
+  }, [store]);
 
   return (
     <main data-testid="app-root" className="app-shell">

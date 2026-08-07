@@ -9,6 +9,7 @@ import { ExportService } from './services/export-service';
 import { SessionService } from './services/session-service';
 import { SettingsService } from './services/settings-service';
 import { registerIpc, type IpcRegistration } from './ipc/register-ipc';
+import { registerAppBeforeQuitCleanup } from './app-lifecycle';
 import { createWindowFocusController } from './window-policy';
 import {
   acquireSingleInstance,
@@ -118,11 +119,7 @@ if (acquireSingleInstance(app, () => {
       snapshotTargets: () => windowManager?.getSnapshotTargets() ?? [],
     });
     const destroyTray = createApplication(windowManager);
-    app.once('before-quit', () => {
-      registration.unregister();
-      destroyTray();
-      database.close();
-    });
+    registerAppBeforeQuitCleanup({ app, windowManager, registration, destroyTray, database });
     app.on('activate', () => windowManager?.showMainWindow());
   });
 }

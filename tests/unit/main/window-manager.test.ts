@@ -10,6 +10,7 @@ import {
   createMiniWindowOptions,
 } from '../../../src/main/windows/mini-window';
 import { createTrayController, createTrayMenuTemplate } from '../../../src/main/tray';
+import { registerAppBeforeQuitCleanup } from '../../../src/main/app-lifecycle';
 import { createDatabase } from '../../../src/main/db/database';
 import { SessionRepository } from '../../../src/main/db/repositories';
 import {
@@ -274,6 +275,49 @@ describe('window manager', () => {
     manager.setRecoveryDialogOpen(false);
     manager.focusExistingWindow();
     expect(main.focus).toHaveBeenCalledOnce();
+  });
+
+  it('marks the window manager as quitting before app-level quit cleanup', () => {
+    const app = { once: vi.fn((_event: 'before-quit', handler: () => void) => handler) };
+    const { dependencies, main } = createDependencies();
+    const manager = createWindowManager(dependencies);
+    manager.createMainWindow();
+    const closeHandler = vi.mocked(main.on).mock.calls.find(([event]) => event === 'close')?.[1] as
+      ((event: { preventDefault(): void }) => void);
+    const registration = Object.assign(vi.fn(), {
+      unregister: vi.fn(),
+      broadcastSnapshot: vi.fn(),
+    });
+    const database = { close: vi.fn() };
+    const destroyTray = vi.fn();
+
+    registerAppBeforeQuitCleanup({
+      app,
+      windowManager: manager,
+      registration,
+      destroyTray,
+      database,
+    });
+
+    const beforeQuitHandler = vi.mocked(app.once).mock.calls[0]?.[1] as (() => void) | undefined;
+    expect(beforeQuitHandler).toBeTypeOf('function');
+
+    const hideEventBeforeQuit = { preventDefault: vi.fn() };
+    closeHandler(hideEventBeforeQuit);
+    expect(hideEventBeforeQuit.preventDefault).toHaveBeenCalledOnce();
+    expect(main.hide).toHaveBeenCalledOnce();
+
+    beforeQuitHandler?.();
+
+    const hideEventAfterQuit = { preventDefault: vi.fn() };
+    closeHandler(hideEventAfterQuit);
+
+    expect(manager.isQuitting()).toBe(true);
+    expect(hideEventAfterQuit.preventDefault).not.toHaveBeenCalled();
+    expect(main.hide).toHaveBeenCalledOnce();
+    expect(registration.unregister).toHaveBeenCalledOnce();
+    expect(destroyTray).toHaveBeenCalledOnce();
+    expect(database.close).toHaveBeenCalledOnce();
   });
 });
 

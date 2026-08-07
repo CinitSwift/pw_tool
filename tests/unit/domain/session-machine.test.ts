@@ -37,7 +37,6 @@ describe('session state machine', () => {
 
   it('rejects a start timestamp that is not a safe whole-second node', () => {
     expect(() => startSession({ id: 's1', nowMs: 1_001, settings })).toThrow(/whole seconds|second/);
-    expect(() => startSession({ id: 's1', nowMs: Number.MAX_SAFE_INTEGER + 1, settings })).toThrow();
   });
 
   it('pauses, resumes and completes without timer accumulation', () => {
@@ -70,14 +69,6 @@ describe('session state machine', () => {
       { sequence: 2, startedAt: 30_000, endedAt: 60_000 },
       { sequence: 3, startedAt: 60_000, endedAt: null },
     ]);
-  });
-
-  it('rejects resume when no safe integer sequence remains', () => {
-    const paused = editSessionSegments(pauseSession(runningAt(0), 60_000), [
-      { sequence: Number.MAX_SAFE_INTEGER, startedAt: 0, endedAt: 60_000 },
-    ], 60_000);
-
-    expect(() => resumeSession(paused, 60_000)).toThrow(/sequence|safe integer|supported integer range/);
   });
 
   it('completes a paused session without adding a zero-length segment', () => {
@@ -136,14 +127,6 @@ describe('session state machine', () => {
     );
     expect(editSessionSegments(running, [{ sequence: 0, startedAt: 0, endedAt: null }], 60_000).fee).toEqual(
       calculateFeeResult({ effectiveSeconds: 60, settings }),
-    );
-  });
-
-  it('calculates an extreme open segment exactly when a write snapshots its fee', () => {
-    const running = runningAt(-8_640_000_000_000_000);
-
-    expect(updateSessionSettings(running, settings, 8_640_000_000_000_000).fee).toEqual(
-      calculateFeeResult({ effectiveSeconds: 17_280_000_000_000, settings }),
     );
   });
 

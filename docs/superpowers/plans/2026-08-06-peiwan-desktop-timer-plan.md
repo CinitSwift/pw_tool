@@ -774,7 +774,7 @@ git commit -m "feat(ipc): expose session service"
 - Create: `tests/e2e/window-and-tray.spec.ts`
 - Create: `tests/fixtures/electron-app.ts`
 
-- [ ] **Step 1: 写窗口行为失败测试**
+- [x] **Step 1: 写窗口行为失败测试**
 
 单元测试使用 mock BrowserWindow 验证尺寸和行为；E2E 测试验证关闭主窗口后窗口隐藏而不是退出：
 
@@ -793,13 +793,13 @@ test('hides the main window to tray and restores it', async () => {
 
 `tests/fixtures/electron-app.ts` 使用 Playwright `_electron.launch`，每次测试创建独立临时 `userData` 目录，并返回 `app`、`page`、`userDataDir` 和 `showMainWindow()`。`showMainWindow()` 通过 `app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.show())` 恢复窗口。托盘菜单模板和退出回调由 `window-manager.test.ts` 单元测试，不尝试用 Playwright 点击操作系统托盘 UI。
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 运行：`npm test -- --run tests/unit/main/window-manager.test.ts`。
 
 预期：失败，因为窗口管理器和托盘尚未创建。
 
-- [ ] **Step 3: 实现主窗口**
+- [x] **Step 3: 实现主窗口**
 
 主窗口配置固定：
 
@@ -814,7 +814,7 @@ const MAIN_WINDOW = { width: 720, height: 620, minWidth: 680, minHeight: 560 };
 - 关闭事件 `event.preventDefault(); window.hide()`，由托盘退出菜单设置 `isQuitting = true` 后允许销毁。
 - 禁止页面打开外部新窗口；外部链接不在首版 UI 中生成。
 
-- [ ] **Step 4: 实现迷你窗**
+- [x] **Step 4: 实现迷你窗**
 
 迷你窗配置：
 
@@ -824,14 +824,14 @@ const MINI_WINDOW = { width: 280, height: 160, minWidth: 260, minHeight: 140, fr
 
 实现 `showMiniWindow()`、`showMainWindow()`、`setMiniAlwaysOnTop(value)`；置顶状态写入 `app_settings`，不自动检测其他应用全屏。
 
-- [ ] **Step 5: 实现托盘与单实例**
+- [x] **Step 5: 实现托盘与单实例**
 
 - 主进程启动时获取单实例锁。
 - 第二次启动通过 `second-instance` 聚焦主窗口；若恢复弹窗打开则聚焦恢复弹窗。
 - 托盘菜单包含“显示窗口”“显示迷你窗”“退出应用”。
 - 退出菜单设置 `isQuitting`，先关闭托盘，再调用 `app.quit()`。
 
-- [ ] **Step 6: 运行窗口 E2E**
+- [x] **Step 6: 运行窗口 E2E**
 
 运行：
 
@@ -840,7 +840,7 @@ const MINI_WINDOW = { width: 280, height: 160, minWidth: 260, minHeight: 140, fr
 
 预期：主窗口尺寸、关闭到托盘、托盘恢复、迷你窗显示、手动置顶和单实例聚焦通过。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add src/main/windows src/main/tray.ts src/main/index.ts tests/fixtures/electron-app.ts tests/unit/main tests/e2e/window-and-tray.spec.ts
@@ -864,7 +864,7 @@ git commit -m "feat(desktop): add windows and tray workflow"
 - Create: `tests/unit/renderer/timer-page.test.tsx`
 - Create: `tests/unit/renderer/recovery-dialog.test.tsx`
 
-- [ ] **Step 1: 写渲染层失败测试**
+- [x] **Step 1: 写渲染层失败测试**
 
 ```tsx
 import { idleSnapshot, pausedSnapshot, runningSnapshot } from '../../fixtures/domain';
@@ -888,13 +888,13 @@ it('requires an explicit recovery choice', async () => {
 });
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 运行：`npm test -- --run tests/unit/renderer/timer-page.test.tsx tests/unit/renderer/recovery-dialog.test.tsx`
 
 预期：失败，因为 React 状态页尚未创建。
 
-- [ ] **Step 3: 实现应用状态与计时页**
+- [x] **Step 3: 实现应用状态与计时页**
 
 `app-state.ts` 负责：
 
@@ -905,7 +905,7 @@ it('requires an explicit recovery choice', async () => {
 
 计时页按规格渲染：状态、有效时长、当前应得、当前抽成、备注摘要、本局参数、调整时间、编辑备注、暂停/继续、结束本局。不得添加今日局数、今日收入或统计卡片。
 
-- [ ] **Step 4: 实现状态组件和操作回调**
+- [x] **Step 4: 实现状态组件和操作回调**
 
 按钮回调必须直接调用 preload API：
 
@@ -918,14 +918,14 @@ it('requires an explicit recovery choice', async () => {
 
 所有异步写操作提供 pending 状态，失败时保留当前页面并显示错误提示；不能在渲染层自行伪造成功快照。
 
-- [ ] **Step 5: 实现备注和本局参数弹窗**
+- [x] **Step 5: 实现备注和本局参数弹窗**
 
 - 备注弹窗限制 500 Unicode 字符，保存前 trim，空字符串表示清空备注。
 - 计时中参数弹窗校验正整数和三个计费方式，保存后调用 `updateSettings`。
 - 空闲设置修改调用 `settings.save`，不创建 session。
 - 弹窗支持键盘 Escape 关闭、Enter 提交、明显焦点状态和未保存关闭确认。
 
-- [ ] **Step 6: 实现恢复弹窗**
+- [x] **Step 6: 实现恢复弹窗**
 
 启动发现活动 session 时阻止进入正常计时页，显示三个选择：
 
@@ -933,7 +933,7 @@ it('requires an explicit recovery choice', async () => {
 - `重新计时`：调用 `recover('restart-new-session')`，旁边说明旧记录永久无效。
 - `不恢复`：调用 `recover('discard')`，旁边说明不创建新会话。
 
-- [ ] **Step 7: 运行渲染层测试和类型检查**
+- [x] **Step 7: 运行渲染层测试和类型检查**
 
 运行：
 
@@ -942,7 +942,7 @@ it('requires an explicit recovery choice', async () => {
 
 预期：状态按钮、无统计约束、参数/备注弹窗和恢复三选项测试通过。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/renderer/App.tsx src/renderer/app-state.ts src/renderer/features/timer tests/unit/renderer
@@ -964,7 +964,7 @@ git commit -m "feat(ui): add timer workflow"
 - Create: `tests/unit/domain/csv.test.ts`
 - Create: `src/shared/domain/csv.ts`
 
-- [ ] **Step 1: 写历史和编辑器失败测试**
+- [x] **Step 1: 写历史和编辑器失败测试**
 
 ```tsx
 import { buildSession, completedRecord, invalidRecord } from '../../fixtures/domain';
@@ -999,13 +999,13 @@ it('escapes commas, quotes, newlines and adds UTF-8 BOM', () => {
 });
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 运行：`npm test -- --run tests/unit/renderer/history-page.test.tsx tests/unit/renderer/time-segment-editor.test.tsx tests/unit/domain/csv.test.ts`
 
 预期：失败，因为历史组件、CSV serializer 和编辑器尚未创建。
 
-- [ ] **Step 3: 实现 CSV 领域函数**
+- [x] **Step 3: 实现 CSV 领域函数**
 
 在 `src/shared/domain/csv.ts` 实现：
 
@@ -1016,7 +1016,7 @@ export function csvEscape(value: string): string;
 
 输出 UTF-8 BOM、固定表头和每局一行；片段在单列中以 `序号:本地开始 -> 本地结束` 合并；逗号、双引号、换行统一按 RFC 4180 规则转义；金额以两位小数输出。
 
-- [ ] **Step 4: 实现历史列表和筛选**
+- [x] **Step 4: 实现历史列表和筛选**
 
 - 默认按开始时间倒序和本地日期分组。
 - 搜索框以备注过滤，输入变化使用 `useDeferredValue` 或 200ms debounce，不能每个键击都写数据库。
@@ -1025,7 +1025,7 @@ export function csvEscape(value: string): string;
 - 删除前弹出记录时间和备注摘要确认。
 - 导出按钮调用 `window.pwTool.history.exportCsv(query)`，显示成功路径和失败原因。
 
-- [ ] **Step 5: 实现时间片段编辑器**
+- [x] **Step 5: 实现时间片段编辑器**
 
 - 以纵向时间线呈现所有 segments。
 - 每个节点提供本地日期和秒级时间输入。
@@ -1036,7 +1036,7 @@ export function csvEscape(value: string): string;
 - 保存成功后更新结果摘要并返回历史详情。
 - `invalid` 记录不渲染编辑按钮。
 
-- [ ] **Step 6: 运行历史测试和类型检查**
+- [x] **Step 6: 运行历史测试和类型检查**
 
 运行：
 
@@ -1064,7 +1064,7 @@ git commit -m "feat(history): add records editor and csv export"
 - Create: `tests/unit/renderer/settings-page.test.tsx`
 - Create: `tests/unit/renderer/mini-timer.test.tsx`
 
-- [ ] **Step 1: 写设置和迷你窗失败测试**
+- [x] **Step 1: 写设置和迷你窗失败测试**
 
 ```tsx
 import { defaultSettings, runningSnapshot } from '../../fixtures/domain';
@@ -1087,27 +1087,27 @@ it('shows the same snapshot in the mini timer', () => {
 });
 ```
 
-- [ ] **Step 2: 运行失败测试**
+- [x] **Step 2: 运行失败测试**
 
 运行：`npm test -- --run tests/unit/renderer/settings-page.test.tsx tests/unit/renderer/mini-timer.test.tsx`
 
 预期：失败，因为设置页和迷你窗组件尚未创建。
 
-- [ ] **Step 3: 实现设置页**
+- [x] **Step 3: 实现设置页**
 
 - 默认计费方式、单价、抽成表单使用共享校验规则。
 - 保存后只更新 `app_settings`，不修改活动会话。
 - 置顶开关调用 `window.pwTool.window.setAlwaysOnTop(value)` 并保存结果。
 - 展示完全离线说明和当前数据目录路径；不添加登录、同步或统计设置。
 
-- [ ] **Step 4: 实现迷你窗界面**
+- [x] **Step 4: 实现迷你窗界面**
 
 - 只显示状态、有效时长、应得金额、抽成、暂停/继续、结束和置顶开关。
 - 操作调用同一 `session` API，不能复制状态机。
 - 订阅主进程快照，窗口打开后立即调用 `getSnapshot()`，之后通过 `subscribe()` 更新。
 - 点击“显示主窗口”调用 `window.showMain()`；主窗口和迷你窗的状态显示必须一致。
 
-- [ ] **Step 5: 完成视觉系统**
+- [x] **Step 5: 完成视觉系统**
 
 在 `tokens.css` 固定：
 
@@ -1118,7 +1118,7 @@ it('shows the same snapshot in the mini timer', () => {
 
 所有主要控件必须有默认、hover、focus-visible、active、disabled、pending 和 error 状态；不要添加渐变、装饰性发光、今日统计卡片或宽屏仪表盘布局。
 
-- [ ] **Step 6: 运行检测和测试**
+- [x] **Step 6: 运行检测和测试**
 
 运行：
 
@@ -1147,7 +1147,7 @@ git commit -m "feat(ui): add settings and mini timer"
 - Create: `tests/fixtures/test-database.ts`
 - Modify: `tests/fixtures/electron-app.ts`
 
-- [ ] **Step 1: 写完整用户流程失败测试**
+- [x] **Step 1: 写完整用户流程失败测试**
 
 ```ts
 import { launchElectronApp } from '../fixtures/electron-app';
@@ -1178,13 +1178,13 @@ test('offers recovery choices after restart', async () => {
 
 `tests/fixtures/test-database.ts` 必须使用生产 migration 创建独立临时数据库，再通过 `SessionRepository.insertSession(buildSession({ status: 'running', ... }))` 写入活动记录；不得手写与生产 schema 不同的测试 SQL。`launchElectronApp({ userDataDir })` 通过环境变量 `PW_TOOL_USER_DATA_DIR` 把该目录传给主进程，主进程仅在 `NODE_ENV === 'test'` 时允许覆盖 `app.getPath('userData')`。
 
-- [ ] **Step 2: 运行失败 E2E**
+- [x] **Step 2: 运行失败 E2E**
 
 运行：`npm run test:e2e -- tests/e2e/timer-workflow.spec.ts tests/e2e/recovery-workflow.spec.ts tests/e2e/history-workflow.spec.ts`
 
 预期：失败或找不到完整流程，因为主进程、渲染层和测试 fixture 尚未全部接通。
 
-- [ ] **Step 3: 接通应用启动快照和恢复门控**
+- [x] **Step 3: 接通应用启动快照和恢复门控**
 
 启动顺序固定为：
 
@@ -1197,11 +1197,11 @@ test('offers recovery choices after restart', async () => {
 
 IPC handler 统一把领域错误转换为稳定的序列化错误：`code`、`message`、可选 `fieldErrors`。
 
-- [ ] **Step 4: 接通托盘、主窗和迷你窗同步**
+- [x] **Step 4: 接通托盘、主窗和迷你窗同步**
 
 服务层每次事务提交后调用 `broadcastSnapshot(snapshot)`，主窗口和迷你窗均订阅同一通道。窗口切换只改变可见性，不创建新服务或新计时器。
 
-- [ ] **Step 5: 补齐异常和退出处理**
+- [x] **Step 5: 补齐异常和退出处理**
 
 - 数据库失败显示启动错误页，不创建正常计时界面。
 - 主进程写入失败返回可重试错误，React 保留草稿。
@@ -1209,7 +1209,7 @@ IPC handler 统一把领域错误转换为稳定的序列化错误：`code`、`m
 - 第二实例聚焦已有主窗口或恢复弹窗。
 - 系统时钟倒退时快照返回 `clock-skew`，暂停结束按钮并显示调整时间入口。
 
-- [ ] **Step 6: 运行完整 E2E 与全量测试**
+- [x] **Step 6: 运行完整 E2E 与全量测试**
 
 运行：
 
@@ -1235,7 +1235,7 @@ git commit -m "feat(app): connect timer workflows"
 - Create: `tests/build/package-config.test.ts`
 - Modify: `package.json` only if packaging metadata is incomplete
 
-- [ ] **Step 1: 写构建配置失败测试**
+- [x] **Step 1: 写构建配置失败测试**
 
 ```ts
 import packageJson from '../../package.json';
@@ -1247,13 +1247,13 @@ it('declares the expected unsigned desktop targets', () => {
 });
 ```
 
-- [ ] **Step 2: 运行失败配置测试**
+- [x] **Step 2: 运行失败配置测试**
 
 运行：`npm test -- --run tests/build/package-config.test.ts`
 
 预期：失败，直到 electron-builder metadata 和 CI 文件完成。
 
-- [ ] **Step 3: 完善 electron-builder 配置**
+- [x] **Step 3: 完善 electron-builder 配置**
 
 固定产物：
 
@@ -1272,7 +1272,7 @@ it('declares the expected unsigned desktop targets', () => {
 
 better-sqlite3 的 native module 必须在 Electron 版本下 rebuild；构建脚本在打包前执行 `electron-builder install-app-deps`，不能依赖开发 Node ABI。
 
-- [ ] **Step 4: 创建 GitHub Actions**
+- [x] **Step 4: 创建 GitHub Actions**
 
 `.github/workflows/build.yml` 使用 `workflow_dispatch`，矩阵包含 `macos-latest` 和 `windows-latest`；每个平台执行：
 
@@ -1297,7 +1297,7 @@ better-sqlite3 的 native module 必须在 Electron 版本下 rebuild；构建�
 
 不添加签名、公证、自动更新或 Wine 交叉构建步骤。
 
-- [ ] **Step 5: 编写 README 和架构文档**
+- [x] **Step 5: 编写 README 和架构文档**
 
 README 必须说明：
 
@@ -1309,7 +1309,7 @@ README 必须说明：
 
 `docs/architecture.md` 说明主进程、preload、renderer、SQLite、领域函数、IPC 快照流和恢复流程。
 
-- [ ] **Step 6: 运行最终构建验证**
+- [x] **Step 6: 运行最终构建验证**
 
 运行：
 

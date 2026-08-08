@@ -11,6 +11,7 @@ export function RecoveryDialog({ session, onChoose }: Props) {
   const [pending, setPending] = useState<RecoveryChoice | null>(null);
   const [error, setError] = useState('');
   const primaryRef = useRef<HTMLButtonElement>(null);
+  const effectiveDuration = formatDuration(session.runtime.effectiveSeconds);
 
   useEffect(() => {
     primaryRef.current?.focus();
@@ -31,14 +32,31 @@ export function RecoveryDialog({ session, onChoose }: Props) {
       <div className="recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="recovery-title" onKeyDown={(event) => {
         if (event.key === 'Escape') { event.preventDefault(); setError('请选择一种恢复方式后继续。'); }
       }}>
-        <span className="status-chip status-paused">发现未完成记录</span>
-        <h1 id="recovery-title">上次计时尚未结束</h1>
-        <p>已记录有效时长 <strong className="mono">{formatDuration(session.runtime.effectiveSeconds)}</strong>。请选择如何处理旧记录。</p>
+        <header className="recovery-header">
+          <span className="status-chip status-paused">发现未完成记录</span>
+          <div className="recovery-copy">
+            <h1 id="recovery-title">上次计时尚未结束</h1>
+            <p>已记录有效时长 <strong className="mono">{effectiveDuration}</strong>。请选择如何处理旧记录。</p>
+          </div>
+        </header>
+        <section className="recovery-summary" aria-label="恢复信息摘要">
+          <div>
+            <span>当前状态</span>
+            <strong>等待恢复决策</strong>
+          </div>
+          <div>
+            <span>已累计时长</span>
+            <strong className="mono">{effectiveDuration}</strong>
+          </div>
+        </section>
+        <p className="recovery-risk">恢复前需要明确选择一种处理方式，旧记录不会被静默覆盖。</p>
         {error && <p className="inline-error" role="alert">{error}</p>}
         <div className="recovery-options">
-          <button aria-label="恢复计时" ref={primaryRef} className="primary recovery-option" onClick={() => void choose('restore')} disabled={pending !== null}><strong>恢复计时</strong><span>保留原时间、参数和备注，回到上次状态。</span></button>
-          <button aria-label="重新计时" className="secondary recovery-option" onClick={() => void choose('restart-new-session')} disabled={pending !== null}><strong>重新计时</strong><span>旧记录标记无效，并立即开始一局新计时。</span></button>
-          <button aria-label="不恢复" className="secondary recovery-option" onClick={() => void choose('discard')} disabled={pending !== null}><strong>不恢复</strong><span>旧记录标记无效，不创建新会话。</span></button>
+          <button aria-label="恢复计时" ref={primaryRef} className="primary recovery-option recovery-option-primary" onClick={() => void choose('restore')} disabled={pending !== null}><strong>恢复计时</strong><span>保留原时间、参数和备注，回到上次状态。</span></button>
+          <div className="recovery-secondary-actions">
+            <button aria-label="重新计时" className="secondary recovery-option" onClick={() => void choose('restart-new-session')} disabled={pending !== null}><strong>重新计时</strong><span>旧记录标记无效，并立即开始一局新计时。</span></button>
+            <button aria-label="不恢复" className="secondary recovery-option" onClick={() => void choose('discard')} disabled={pending !== null}><strong>不恢复</strong><span>旧记录标记无效，不创建新会话。</span></button>
+          </div>
         </div>
         {pending && <p className="pending-text" aria-live="polite">正在处理，请稍候…</p>}
       </div>

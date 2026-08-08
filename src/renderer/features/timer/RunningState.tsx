@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { TimeSegment } from '../../../shared/domain/types';
 import type { TimerStateProps } from './TimerPage';
 import { billingModeLabels, formatDuration, formatLocalTime, formatMoney } from './TimerPage';
 import { BillingSettingsPopover } from './BillingSettingsPopover';
@@ -19,6 +20,9 @@ export function RunningState({ snapshot, api }: TimerStateProps) {
     setPending(action); setError('');
     try { await api.session[action](); } catch { setError(action === 'pause' ? '暂停失败，请重试。' : '结束本局失败，请重试。'); } finally { setPending(null); }
   };
+  const saveSegments = async (segments: TimeSegment[]): Promise<void> => {
+    await api.session.editSegments({ sessionId: session.id, segments });
+  };
   const firstStart = session.segments[0]?.startedAt;
   const closedSeconds = session.segments.reduce((sum, segment) => sum + (segment.endedAt === null ? 0 : Math.floor((segment.endedAt - segment.startedAt) / 1_000)), 0);
 
@@ -33,7 +37,7 @@ export function RunningState({ snapshot, api }: TimerStateProps) {
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="state-actions"><button className="primary" onClick={() => void run('pause')} disabled={pending !== null || clockInvalid}>{pending === 'pause' ? '正在暂停…' : '暂停计时'}</button><button className="secondary danger" onClick={() => void run('complete')} disabled={pending !== null || clockInvalid}>{pending === 'complete' ? '正在结束…' : '结束本局'}</button></div>
       {noteOpen && <NoteDialog initialNote={session.note} onClose={() => setNoteOpen(false)} onSave={(note) => api.session.updateNote(note).then(() => undefined)} />}
-      {timeEditOpen && <TimeEditDialog onClose={() => setTimeEditOpen(false)} />}
+      {timeEditOpen && <TimeEditDialog session={session} onClose={() => setTimeEditOpen(false)} onSave={saveSegments} />}
       {settingsOpen && <div className="dialog-backdrop"><BillingSettingsPopover api={api} settings={session.settings} onClose={() => setSettingsOpen(false)} /></div>}
     </section>
   );

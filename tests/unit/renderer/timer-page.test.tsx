@@ -18,6 +18,9 @@ const api = {
     updateNote: vi.fn(),
     editSegments: vi.fn(),
   },
+  history: {
+    editSegments: vi.fn(),
+  },
   settings: { save: vi.fn() },
 };
 
@@ -29,6 +32,8 @@ beforeEach(() => {
   api.session.complete.mockResolvedValue(buildSnapshot({ session: buildSession() }));
   api.session.updateSettings.mockResolvedValue(runningSnapshot);
   api.session.updateNote.mockResolvedValue(runningSnapshot);
+  api.session.editSegments.mockResolvedValue(runningSnapshot);
+  api.history.editSegments.mockResolvedValue(buildSession());
   Object.assign(api.settings, { get: vi.fn().mockResolvedValue({ billingMode: '15-step', hourlyRateYuan: 40, hourlyCommissionYuan: 3, miniAlwaysOnTop: false }) });
   api.settings.save.mockResolvedValue({ ...runningSnapshot.session?.settings, miniAlwaysOnTop: false });
 });
@@ -64,15 +69,47 @@ describe('TimerPage states', () => {
     expect(screen.getByText(/本段已计/)).toBeVisible();
   });
 
-  it('shows a non-editing time adjustment entry point', () => {
+  it('edits current-session segments through session.editSegments', async () => {
     render(<PausedState snapshot={pausedSnapshot} api={api as never} />);
 
     fireEvent.click(screen.getByRole('button', { name: '调整时间' }));
+    const dialog = screen.getByRole('dialog', { name: '调整时间' });
+    expect(dialog).toBeVisible();
+    fireEvent.change(screen.getByLabelText('第 1 段开始时间'), { target: { value: '1970-01-01T08:00:05' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
+
+    await waitFor(() => expect(api.session.editSegments).toHaveBeenCalledWith({
+      sessionId: pausedSnapshot.session?.id,
+      segments: [{ sequence: 0, startedAt: 5_000, endedAt: 60_000 }],
+    }));
+    expect(api.history.editSegments).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '调整时间' })).not.toBeInTheDocument());
+  });
+
+  it('keeps completed-session editor open and shows save error when segment save fails', async () => {
+    const completed = buildSnapshot({
+      session: buildSession({
+        id: 'completed-session',
+        status: 'completed',
+        segments: [{ sequence: 0, startedAt: 0, endedAt: 60_000 }],
+      }),
+      runtime: { ...idleSnapshot.runtime, status: 'completed', effectiveSeconds: 60, effectiveMinutes: 1 },
+    });
+    api.session.editSegments.mockRejectedValueOnce({ code: 'internal-error', message: 'An internal error occurred.' });
+
+    render(<CompletedState snapshot={completed} api={api as never} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '调整时间' }));
+    fireEvent.change(screen.getByLabelText('第 1 段结束时间'), { target: { value: '1970-01-01T08:01:30' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }));
+
+    await waitFor(() => expect(screen.getByText('保存失败，请重试。')).toBeVisible());
+    expect(api.session.editSegments).toHaveBeenCalledWith({
+      sessionId: 'completed-session',
+      segments: [{ sequence: 0, startedAt: 0, endedAt: 90_000 }],
+    });
+    expect(api.history.editSegments).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog', { name: '调整时间' })).toBeVisible();
-    expect(screen.getByText('完整的历史和时间编辑器将在后续任务接入。')).toBeVisible();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
-    expect(api.session.editSegments).not.toHaveBeenCalled();
   });
 
   it('disables running actions while the clock is invalid', () => {

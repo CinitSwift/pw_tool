@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { TimeSegment } from '../../../shared/domain/types';
 import type { TimerStateProps } from './TimerPage';
 import { billingModeLabels, formatDuration, formatMoney } from './TimerPage';
 import { BillingSettingsPopover } from './BillingSettingsPopover';
@@ -18,6 +19,9 @@ export function PausedState({ snapshot, api }: TimerStateProps) {
     setPending(action); setError('');
     try { await api.session[action](); } catch { setError('操作失败，请重试。'); } finally { setPending(null); }
   };
+  const saveSegments = async (segments: TimeSegment[]): Promise<void> => {
+    await api.session.editSegments({ sessionId: session.id, segments });
+  };
   return (
     <section className="timer-state paused-state" aria-labelledby="paused-title">
       <header className="state-header"><div><span className="status-chip status-paused">已暂停</span><h1 id="paused-title">计时已暂停</h1></div><div className="header-actions"><button className="text-button" onClick={() => setNoteOpen(true)}>{session.note ? '编辑备注' : '添加备注'}</button><button className="text-button" onClick={() => setTimeEditOpen(true)}>调整时间</button></div></header>
@@ -27,7 +31,7 @@ export function PausedState({ snapshot, api }: TimerStateProps) {
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="state-actions"><button className="primary" onClick={() => void run('resume')} disabled={pending !== null}>{pending === 'resume' ? '正在继续…' : '继续计时'}</button><button className="secondary danger" onClick={() => void run('complete')} disabled={pending !== null}>{pending === 'complete' ? '正在结束…' : '结束本局'}</button></div>
       {noteOpen && <NoteDialog initialNote={session.note} onClose={() => setNoteOpen(false)} onSave={(note) => api.session.updateNote(note).then(() => undefined)} />}
-      {timeEditOpen && <TimeEditDialog onClose={() => setTimeEditOpen(false)} />}
+      {timeEditOpen && <TimeEditDialog session={session} onClose={() => setTimeEditOpen(false)} onSave={saveSegments} />}
       {settingsOpen && <div className="dialog-backdrop"><BillingSettingsPopover api={api} settings={session.settings} onClose={() => setSettingsOpen(false)} /></div>}
     </section>
   );

@@ -48,5 +48,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pw-tool-${{ runner.os }}
-          path: release/*
+          path: dist/*
           if-no-files-found: error

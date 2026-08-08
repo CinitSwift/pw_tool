@@ -142,6 +142,19 @@ describe('SessionService', () => {
     expect(repository.updateCount).toBe(3);
   });
 
+  it('pauses immediately when the service clock returns the same whole second', () => {
+    const { service } = createService({ now: 0, ids: ['rapid-session'] });
+
+    service.start();
+
+    expect(service.pause()).toMatchObject({
+      session: {
+        status: 'paused',
+        segments: [{ startedAt: 0, endedAt: 1_000 }],
+      },
+    });
+  });
+
   it('rejects a second active session before writing', () => {
     const repository = new InMemoryRepository({ sessions: [runningSession()] });
     const { service } = createService({ repository });
@@ -180,6 +193,18 @@ describe('SessionService', () => {
         { startedAt: 91 * SECOND, endedAt: null },
       ],
     });
+  });
+
+  it('keeps manual zero-duration segment edits invalid', () => {
+    const paused = runningSession({
+      status: 'paused',
+      segments: [{ sequence: 0, startedAt: 0, endedAt: SECOND }],
+    });
+    const { service } = createService({ repository: new InMemoryRepository({ sessions: [paused] }), now: SECOND });
+
+    expect(() => service.editSegments([{ sequence: 0, startedAt: SECOND, endedAt: SECOND }])).toThrow(
+      IpcDomainError,
+    );
   });
 
   it.each(['pause', 'resume', 'complete', 'updateSettings', 'updateNote', 'editSegments'] as const)(
@@ -341,8 +366,8 @@ describe('ExportService', () => {
     ]);
 
     expect(csv).toBe(
-      'id,status,startedAt,endedAt,effectiveMinutes,billedMinutes,grossAmountCents,commissionAmountCents,note\r\n' +
-        '"csv-1","completed","1000","61000","0","0","0","0","comma, quote "" and newline\nnext"',
+      '\uFEFFid,status,startedAtLocal,endedAtLocal,effectiveMinutes,billedMinutes,grossAmountYuan,commissionAmountYuan,note,segments\r\n' +
+        '"csv-1","completed","1970-01-01 08:00:01 GMT+08:00","1970-01-01 08:01:01 GMT+08:00","0","0","0.00","0.00","comma, quote "" and newline\nnext","1:1970-01-01 08:00:01 GMT+08:00 -> 1970-01-01 08:01:01 GMT+08:00"',
     );
   });
 
@@ -371,7 +396,7 @@ describe('registerIpc', () => {
     const registration = registerIpc({
       ipcMain,
       session,
-      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      history: { list: () => [], delete: () => undefined, editSegments: () => ({ marker: 'snapshot' }) as unknown as Session, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
       settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
       window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
     });
@@ -439,6 +464,7 @@ describe('registerIpc', () => {
     const history = {
       list: vi.fn(() => []),
       delete: vi.fn(),
+      editSegments: vi.fn(() => buildSession({ id: 'history-edit' })),
       exportCsv: vi.fn(() => ({ filePath: '/tmp/a.csv', rowCount: 0 })),
     };
     const settings = {
@@ -488,7 +514,7 @@ describe('registerIpc', () => {
         editSegments: () => snapshot,
         handleRecovery: () => ({ snapshot }),
       },
-      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      history: { list: () => [], delete: () => undefined, editSegments: () => buildSession({ id: 'history-edit' }), exportCsv: () => ({ filePath: '', rowCount: 0 }) },
       settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
       window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
       snapshotTargets: () => [{ send }],
@@ -523,7 +549,7 @@ describe('registerIpc', () => {
         editSegments: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
         handleRecovery: () => ({ snapshot: ({ marker: 'snapshot' }) as unknown as SessionSnapshot }),
       },
-      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      history: { list: () => [], delete: () => undefined, editSegments: () => buildSession({ id: 'history-edit' }), exportCsv: () => ({ filePath: '', rowCount: 0 }) },
       settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
       window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
     };
@@ -603,7 +629,7 @@ describe('registerIpc', () => {
         editSegments: () => ({ marker: 'snapshot' }) as unknown as SessionSnapshot,
         handleRecovery: () => ({ snapshot: ({ marker: 'snapshot' }) as unknown as SessionSnapshot }),
       },
-      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      history: { list: () => [], delete: () => undefined, editSegments: () => buildSession({ id: 'history-edit' }), exportCsv: () => ({ filePath: '', rowCount: 0 }) },
       settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
       window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
     };
@@ -641,7 +667,12 @@ describe('registerIpc', () => {
         editSegments: vi.fn(() => snapshot),
         handleRecovery: vi.fn(() => recovery),
       },
-      history: { list: vi.fn(() => []), delete: vi.fn(), exportCsv: vi.fn(() => ({ filePath: '', rowCount: 0 })) },
+      history: {
+        list: vi.fn(() => []),
+        delete: vi.fn(),
+        editSegments: vi.fn(() => buildSession({ id: 'history-edit' })),
+        exportCsv: vi.fn(() => ({ filePath: '', rowCount: 0 })),
+      },
       settings: { get: vi.fn(() => ({ ...defaultSettings, miniAlwaysOnTop: false })), save: vi.fn((value: AppSettings) => value) },
       window: { showMain: vi.fn(), showMini: vi.fn(), setAlwaysOnTop: vi.fn((value: boolean) => value) },
       snapshotTargets: () => [{ send }],
@@ -673,6 +704,7 @@ describe('registerIpc', () => {
     await handlers.get(IPC.sessionSnapshot)?.({});
     await handlers.get(IPC.historyList)?.({}, {});
     await handlers.get(IPC.historyDelete)?.({}, 'id');
+    await handlers.get(IPC.historyEditSegments)?.({}, { sessionId: 'history-edit', segments: [] });
     await handlers.get(IPC.historyExportCsv)?.({}, {});
     await handlers.get(IPC.settingsGet)?.({});
     await handlers.get(IPC.settingsSave)?.({}, {});
@@ -709,7 +741,7 @@ describe('registerIpc', () => {
           snapshot,
         }),
       },
-      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      history: { list: () => [], delete: () => undefined, editSegments: () => buildSession({ id: 'history-edit' }), exportCsv: () => ({ filePath: '', rowCount: 0 }) },
       settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
       window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
       snapshotTargets: () => [{ send }],
@@ -744,7 +776,7 @@ describe('registerIpc', () => {
         editSegments: () => snapshot,
         handleRecovery: () => ({ snapshot }),
       },
-      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      history: { list: () => [], delete: () => undefined, editSegments: () => buildSession({ id: 'history-edit' }), exportCsv: () => ({ filePath: '', rowCount: 0 }) },
       settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
       window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
       snapshotTargets: () => [{ send: failingSend }, { send: healthySend }],
@@ -776,7 +808,7 @@ describe('registerIpc', () => {
         editSegments: () => snapshot,
         handleRecovery: () => ({ snapshot }),
       },
-      history: { list: () => [], delete: () => undefined, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
+      history: { list: () => [], delete: () => undefined, editSegments: () => ({ marker: 'snapshot' }) as unknown as Session, exportCsv: () => ({ filePath: '', rowCount: 0 }) },
       settings: { get: () => ({ ...defaultSettings, miniAlwaysOnTop: false }), save: (value: AppSettings) => value },
       window: { showMain: () => undefined, showMini: () => undefined, setAlwaysOnTop: (value: boolean) => value },
       snapshotTargets: () => {

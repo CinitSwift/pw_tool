@@ -5,6 +5,7 @@ export const IPC_ERROR_PREFIX = 'PW_TOOL_IPC_ERROR:';
 export type IpcErrorCode =
   | 'session-active-exists'
   | 'session-not-found'
+  | 'history-not-found'
   | 'session-invalid-state'
   | 'validation-error'
   | 'export-cancelled'

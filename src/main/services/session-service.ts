@@ -15,6 +15,7 @@ import { SegmentValidationFailure } from '../../shared/domain/time-segments';
 import type {
   AppSettings,
   BillingSettings,
+  EditSegmentsInput,
   RecoveryChoice,
   RecoveryResult,
   SessionSnapshot,
@@ -23,6 +24,7 @@ import type {
 import { IpcDomainError } from '../../shared/ipc-errors';
 
 export interface SessionServiceRepository {
+  findById(id: string): Session | null;
   findActive(): Session | null;
   insertSession(session: Session): void;
   updateSession(session: Session): void;
@@ -34,6 +36,7 @@ const INTERNAL_SNAPSHOT_ERROR = {
   code: 'internal-error',
   message: 'An internal error occurred.',
 } as const;
+const SECOND_MS = 1_000;
 
 function toValidationError(error: unknown, message: string): never {
   if (error instanceof SegmentValidationFailure) {
@@ -86,15 +89,15 @@ export class SessionService {
   }
 
   pause(): SessionSnapshot {
-    return this.update((session, nowMs) => pauseSession(session, nowMs));
+    return this.update((session, nowMs) => pauseSession(session, nowMs), undefined, true);
   }
 
   resume(): SessionSnapshot {
-    return this.update((session, nowMs) => resumeSession(session, nowMs));
+    return this.update((session, nowMs) => resumeSession(session, nowMs), undefined, true);
   }
 
   complete(): SessionSnapshot {
-    return this.update((session, nowMs) => completeSession(session, nowMs));
+    return this.update((session, nowMs) => completeSession(session, nowMs), undefined, true);
   }
 
   updateSettings(settings: BillingSettings): SessionSnapshot {
@@ -108,10 +111,15 @@ export class SessionService {
     return this.update((session) => updateSessionNote(session, note), 'The note is invalid.');
   }
 
-  editSegments(segments: TimeSegment[]): SessionSnapshot {
+  editSegments(input: EditSegmentsInput): SessionSnapshot {
+    const { sessionId, segments } = Array.isArray(input)
+      ? { sessionId: undefined, segments: input }
+      : input;
     return this.update(
       (session, nowMs) => editSessionSegments(session, segments, nowMs),
       'The time segments are invalid.',
+      false,
+      sessionId,
     );
   }
 
@@ -122,7 +130,7 @@ export class SessionService {
       return { snapshot: this.snapshot(active, false) };
     }
 
-    const nowMs = this.clock();
+    const nowMs = this.commandTimestamp(active);
     const reason = choice === 'discard' ? 'restart-discard' : 'restart-new-session';
     const invalidatedSession = invalidateSession(active, { nowMs, reason });
     let newSession: Session | undefined;
@@ -157,9 +165,11 @@ export class SessionService {
   private update(
     transform: (session: Session, nowMs: number) => Session,
     validationMessage?: string,
+    monotonicTimestamp = false,
+    sessionId?: string,
   ): SessionSnapshot {
-    const active = this.requireActive();
-    const nowMs = this.clock();
+    const active = sessionId ? this.requireById(sessionId) : this.requireActive();
+    const nowMs = monotonicTimestamp ? this.commandTimestamp(active) : this.clock();
     let next: Session;
     try {
       next = transform(active, nowMs);
@@ -172,6 +182,21 @@ export class SessionService {
     this.repository.transaction(() => this.repository.updateSession(next));
     this.recoveryPending = false;
     return this.snapshot(next, false);
+  }
+
+  private requireById(id: string): Session {
+    const session = this.repository.findById(id);
+    if (!session) {
+      throw new Error('session does not exist');
+    }
+    return session;
+  }
+
+  private commandTimestamp(session: Session): number {
+    const lastSegment = session.segments.at(-1);
+    const lastRelevantTimestamp = lastSegment?.endedAt ?? lastSegment?.startedAt;
+    if (lastRelevantTimestamp === undefined) return this.clock();
+    return Math.max(this.clock(), lastRelevantTimestamp + SECOND_MS);
   }
 
   private snapshot(session: Session | null, recoveryRequired: boolean): SessionSnapshot {

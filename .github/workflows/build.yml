@@ -6,6 +6,9 @@ on:
       - feature/desktop-timer
   workflow_dispatch:
 
+env:
+  TZ: Asia/Shanghai
+
 jobs:
   build:
     name: Build (${{ matrix.os }})

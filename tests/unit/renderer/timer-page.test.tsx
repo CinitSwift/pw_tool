@@ -122,6 +122,19 @@ describe('TimerPage states', () => {
     expect(screen.getByRole('button', { name: '保存备注' })).toBeDisabled();
   });
 
+  it('keeps the note draft open when saving fails', async () => {
+    api.session.updateNote.mockRejectedValueOnce({ code: 'internal-error', message: 'An internal error occurred.' });
+    render(<RunningState snapshot={runningSnapshot} api={api as never} />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: '添加备注' })[0]);
+    fireEvent.change(screen.getByRole('textbox', { name: '备注' }), { target: { value: '失败后保留备注' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存备注' }));
+
+    await waitFor(() => expect(screen.getByText('备注保存失败，请重试。')).toBeVisible());
+    expect(screen.getByRole('textbox', { name: '备注' })).toHaveValue('失败后保留备注');
+    expect(screen.getByRole('dialog', { name: '本局备注' })).toBeVisible();
+  });
+
   it('passes an idle billing settings save to settings API', async () => {
     render(<IdleState snapshot={idleSnapshot} api={api as never} />);
     fireEvent.click(screen.getAllByRole('button', { name: '计费设置' })[0]);
@@ -130,6 +143,19 @@ describe('TimerPage states', () => {
 
     await waitFor(() => expect(api.settings.save).toHaveBeenCalledWith(expect.objectContaining({ hourlyRateYuan: 50 })));
     expect(api.session.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('keeps billing settings draft open when saving current-session parameters fails', async () => {
+    api.session.updateSettings.mockRejectedValueOnce({ code: 'internal-error', message: 'An internal error occurred.' });
+    render(<RunningState snapshot={runningSnapshot} api={api as never} />);
+
+    fireEvent.click(screen.getAllByRole('button').find((button) => button.textContent?.includes('本局参数'))!);
+    fireEvent.change(screen.getByRole('spinbutton', { name: '每小时单价' }), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存参数' }));
+
+    await waitFor(() => expect(screen.getByText('参数保存失败，当前有效结果保持不变。')).toBeVisible());
+    expect(screen.getByRole('spinbutton', { name: '每小时单价' })).toHaveValue(50);
+    expect(screen.getByRole('dialog', { name: '计费设置' })).toBeVisible();
   });
 
   it('confirms before closing dirty billing settings', () => {

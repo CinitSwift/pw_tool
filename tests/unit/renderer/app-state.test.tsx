@@ -26,6 +26,7 @@ const api: PwToolApi = {
   history: {
     list: vi.fn(),
     delete: vi.fn(),
+    editSegments: vi.fn(),
     exportCsv: vi.fn(),
   },
   settings: {

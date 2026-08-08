@@ -2,6 +2,7 @@ import type { Session } from '../../shared/domain/session-machine';
 import type {
   AppSettings,
   BillingSettings,
+  EditSegmentsInput,
   HistoryQuery,
   RecoveryChoice,
   RecoveryResult,
@@ -35,13 +36,14 @@ interface SessionActions {
   complete(): SessionSnapshot | Promise<SessionSnapshot>;
   updateSettings(settings: BillingSettings): SessionSnapshot | Promise<SessionSnapshot>;
   updateNote(note: string): SessionSnapshot | Promise<SessionSnapshot>;
-  editSegments(segments: TimeSegment[]): SessionSnapshot | Promise<SessionSnapshot>;
+  editSegments(input: EditSegmentsInput): SessionSnapshot | Promise<SessionSnapshot>;
   handleRecovery(choice: RecoveryChoice): RecoveryResult | Promise<RecoveryResult>;
 }
 
 interface HistoryActions {
   list(input: HistoryQuery): Session[] | Promise<Session[]>;
   delete(id: string): void | Promise<void>;
+  editSegments(input: { sessionId: string; segments: TimeSegment[] }): Session | Promise<Session>;
   exportCsv(input: HistoryQuery): { filePath: string; rowCount: number } | Promise<{ filePath: string; rowCount: number }>;
 }
 
@@ -113,6 +115,9 @@ function serializeError(error: unknown): SerializedIpcError {
   if (message === 'active session does not exist') {
     return { code: 'session-not-found', message };
   }
+  if (message === 'session does not exist') {
+    return { code: 'history-not-found', message };
+  }
   if (message === 'CSV export cancelled') {
     return { code: 'export-cancelled', message };
   }
@@ -147,10 +152,11 @@ export function registerIpc(dependencies: IpcDependencies): IpcRegistration {
     [IPC.sessionComplete]: () => session.complete(),
     [IPC.sessionUpdateSettings]: (_event, value) => session.updateSettings(value as BillingSettings),
     [IPC.sessionUpdateNote]: (_event, value) => session.updateNote(value as string),
-    [IPC.sessionEditSegments]: (_event, value) => session.editSegments(value as TimeSegment[]),
+    [IPC.sessionEditSegments]: (_event, value) => session.editSegments(value as EditSegmentsInput),
     [IPC.sessionRecovery]: (_event, value) => session.handleRecovery(value as RecoveryChoice),
     [IPC.historyList]: (_event, value) => history.list(value as HistoryQuery),
     [IPC.historyDelete]: (_event, value) => history.delete(value as string),
+    [IPC.historyEditSegments]: (_event, value) => history.editSegments(value as { sessionId: string; segments: TimeSegment[] }),
     [IPC.historyExportCsv]: (_event, value) => history.exportCsv(value as HistoryQuery),
     [IPC.settingsGet]: () => settings.get(),
     [IPC.settingsSave]: (_event, value) => settings.save(value as AppSettings),

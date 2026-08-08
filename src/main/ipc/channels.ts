@@ -10,6 +10,7 @@ export const IPC = {
   sessionRecovery: 'session:recovery',
   historyList: 'history:list',
   historyDelete: 'history:delete',
+  historyEditSegments: 'history:edit-segments',
   historyExportCsv: 'history:export-csv',
   settingsGet: 'settings:get',
   settingsSave: 'settings:save',

@@ -2,6 +2,7 @@ import type { IpcRendererEvent } from 'electron';
 import type {
   AppSettings,
   BillingSettings,
+  EditSegmentsInput,
   HistoryQuery,
   RecoveryChoice,
   RecoveryResult,
@@ -67,13 +68,14 @@ export interface PwToolApi {
     complete(): Promise<SessionSnapshot>;
     updateSettings(settings: BillingSettings): Promise<SessionSnapshot>;
     updateNote(note: string): Promise<SessionSnapshot>;
-    editSegments(segments: TimeSegment[]): Promise<SessionSnapshot>;
+    editSegments(input: EditSegmentsInput): Promise<SessionSnapshot>;
     recover(choice: RecoveryChoice): Promise<RecoveryResult>;
     subscribe(listener: (snapshot: SessionSnapshot) => void): () => void;
   };
   history: {
     list(input: HistoryQuery): Promise<Session[]>;
     delete(id: string): Promise<void>;
+    editSegments(input: { sessionId: string; segments: TimeSegment[] }): Promise<Session>;
     exportCsv(input: HistoryQuery): Promise<{ filePath: string; rowCount: number }>;
   };
   settings: {
@@ -103,7 +105,7 @@ export function createPwToolApi(ipcRenderer: NarrowIpcRenderer): PwToolApi {
       complete: () => invoke<SessionSnapshot>(ipcRenderer, IPC.sessionComplete),
       updateSettings: (settings) => invoke<SessionSnapshot>(ipcRenderer, IPC.sessionUpdateSettings, settings),
       updateNote: (note) => invoke<SessionSnapshot>(ipcRenderer, IPC.sessionUpdateNote, note),
-      editSegments: (segments) => invoke<SessionSnapshot>(ipcRenderer, IPC.sessionEditSegments, segments),
+      editSegments: (input) => invoke<SessionSnapshot>(ipcRenderer, IPC.sessionEditSegments, input),
       recover: (choice) => invoke<RecoveryResult>(ipcRenderer, IPC.sessionRecovery, choice),
       subscribe(listener) {
         const wrapped = (_event: IpcRendererEvent, snapshot: SessionSnapshot): void => listener(snapshot);
@@ -114,6 +116,7 @@ export function createPwToolApi(ipcRenderer: NarrowIpcRenderer): PwToolApi {
     history: {
       list: (input) => invoke<Session[]>(ipcRenderer, IPC.historyList, input),
       delete: (id) => invoke<void>(ipcRenderer, IPC.historyDelete, id),
+      editSegments: (input) => invoke<Session>(ipcRenderer, IPC.historyEditSegments, input),
       exportCsv: (input) => invoke<{ filePath: string; rowCount: number }>(ipcRenderer, IPC.historyExportCsv, input),
     },
     settings: {

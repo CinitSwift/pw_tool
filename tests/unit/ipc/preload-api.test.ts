@@ -47,10 +47,11 @@ describe('preload API', () => {
     await api.session.complete();
     await api.session.updateSettings(settings);
     await api.session.updateNote('note');
-    await api.session.editSegments(segments);
+    await api.session.editSegments({ sessionId: 'active-session', segments });
     await api.session.recover('restore');
     await api.history.list(query);
     await api.history.delete('session-1');
+    await api.history.editSegments({ sessionId: 'history-session', segments });
     await api.history.exportCsv(query);
     await api.settings.get();
     await api.settings.save({ ...settings, miniAlwaysOnTop: false });
@@ -66,10 +67,11 @@ describe('preload API', () => {
       [IPC.sessionComplete],
       [IPC.sessionUpdateSettings, settings],
       [IPC.sessionUpdateNote, 'note'],
-      [IPC.sessionEditSegments, segments],
+      [IPC.sessionEditSegments, { sessionId: 'active-session', segments }],
       [IPC.sessionRecovery, 'restore'],
       [IPC.historyList, query],
       [IPC.historyDelete, 'session-1'],
+      [IPC.historyEditSegments, { sessionId: 'history-session', segments }],
       [IPC.historyExportCsv, query],
       [IPC.settingsGet],
       [IPC.settingsSave, { ...settings, miniAlwaysOnTop: false }],
@@ -128,10 +130,11 @@ describe('preload API', () => {
       () => api.session.complete(),
       () => api.session.updateSettings({ billingMode: 'minute', hourlyRateYuan: 40, hourlyCommissionYuan: 3 }),
       () => api.session.updateNote('note'),
-      () => api.session.editSegments([]),
+      () => api.session.editSegments({ sessionId: 'active-session', segments: [] }),
       () => api.session.recover('restore'),
       () => api.history.list({}),
       () => api.history.delete('session-1'),
+      () => api.history.editSegments({ sessionId: 'history-session', segments: [] }),
       () => api.history.exportCsv({}),
       () => api.settings.get(),
       () => api.settings.save({ billingMode: 'minute', hourlyRateYuan: 40, hourlyCommissionYuan: 3, miniAlwaysOnTop: false }),
@@ -146,6 +149,6 @@ describe('preload API', () => {
         message: 'An internal error occurred.',
       });
     }
-    expect(invoke).toHaveBeenCalledTimes(17);
+    expect(invoke).toHaveBeenCalledTimes(18);
   });
 });

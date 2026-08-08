@@ -1,0 +1,110 @@
+.settings-page {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.settings-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.settings-header h1 {
+  margin: 8px 0 6px;
+  font-size: 22px;
+}
+
+.settings-header p,
+.settings-copy,
+.settings-path {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.settings-panel {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.settings-card {
+  padding: 18px;
+}
+
+.settings-card h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.settings-field {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: 14px;
+}
+
+.settings-field label,
+.toggle-row strong {
+  color: color-mix(in srgb, var(--text) 88%, var(--muted) 12%);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-field input,
+.settings-field select {
+  border-color: color-mix(in srgb, var(--line) 82%, white 18%);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-5);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.toggle-row span {
+  display: grid;
+  gap: 4px;
+}
+
+.toggle-row small {
+  color: var(--muted);
+}
+
+.settings-success {
+  margin-top: 14px;
+}
+
+.settings-info .settings-copy + .settings-copy {
+  margin-top: 4px;
+}
+
+.settings-path {
+  margin-top: 10px;
+  word-break: break-all;
+}
+
+@media (max-width: 719px) {
+  .settings-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toggle-row,
+  .settings-actions {
+    align-items: stretch;
+  }
+
+  .settings-actions .primary {
+    width: 100%;
+  }
+}

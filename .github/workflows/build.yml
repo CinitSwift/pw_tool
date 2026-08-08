@@ -1,6 +1,9 @@
 name: Build
 
 on:
+  push:
+    branches:
+      - feature/desktop-timer
   workflow_dispatch:
 
 jobs:

@@ -8,10 +8,17 @@ export interface ElectronAppFixture {
   page: Page;
   userDataDir: string;
   showMainWindow(): Promise<void>;
+  close(): Promise<void>;
 }
 
-export async function launchElectronApp(): Promise<ElectronAppFixture> {
-  const userDataDir = await mkdtemp(join(tmpdir(), 'pw-tool-e2e-'));
+export interface LaunchElectronAppOptions {
+  userDataDir?: string;
+  retainUserDataDir?: boolean;
+}
+
+export async function launchElectronApp(options: LaunchElectronAppOptions = {}): Promise<ElectronAppFixture> {
+  const userDataDir = options.userDataDir ?? await mkdtemp(join(tmpdir(), 'pw-tool-e2e-'));
+  const createdUserDataDir = options.userDataDir === undefined;
   const app = await electron.launch({
     args: ['.'],
     env: { ...process.env, ELECTRON_USER_DATA_DIR: userDataDir },
@@ -23,14 +30,18 @@ export async function launchElectronApp(): Promise<ElectronAppFixture> {
   };
 
   const close = app.close.bind(app);
-  app.close = async (): Promise<void> => {
+  const dispose = async (): Promise<void> => {
     try {
       await app.evaluate(({ app }) => app.exit(0));
     } catch {
       await close().catch(() => undefined);
     }
-    await rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
+    if (createdUserDataDir && !options.retainUserDataDir) {
+      await rm(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
+    }
   };
 
-  return { app, page, userDataDir, showMainWindow };
+  app.close = dispose;
+
+  return { app, page, userDataDir, showMainWindow, close: dispose };
 }

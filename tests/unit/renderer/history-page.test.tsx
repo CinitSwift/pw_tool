@@ -109,7 +109,7 @@ describe('HistoryPage', () => {
     render(<HistoryPage api={api} />);
 
     await waitFor(() => expect(screen.getByText('delete-me')).toBeVisible());
-    fireEvent.click(screen.getByRole('button', { name: '删除 delete-me' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除记录' }));
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2026-08-06'));
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('老板北北今天双排很久'));

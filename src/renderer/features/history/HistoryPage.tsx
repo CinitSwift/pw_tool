@@ -133,24 +133,28 @@ export function HistoryPage({ api }: Props) {
   return (
     <section className="history-page" aria-labelledby="history-title">
       <header className="history-header">
-        <div>
+        <div className="history-header-copy">
           <span className="status-chip">历史</span>
           <h1 id="history-title">历史记录</h1>
           <p>按开始时间倒序显示，并按本地日期分组</p>
         </div>
-      <button className="primary" onClick={() => void onExport()}>导出 CSV</button>
+        <div className="history-header-actions">
+          <button className="primary" onClick={() => void onExport()}>导出 CSV</button>
+        </div>
       </header>
 
-      <HistoryFilters
-        query={query}
-        status={status}
-        from={from}
-        to={to}
-        onQueryChange={setQuery}
-        onStatusChange={setStatus}
-        onFromChange={setFrom}
-        onToChange={setTo}
-      />
+      <div className="history-toolbar">
+        <HistoryFilters
+          query={query}
+          status={status}
+          from={from}
+          to={to}
+          onQueryChange={setQuery}
+          onStatusChange={setStatus}
+          onFromChange={setFrom}
+          onToChange={setTo}
+        />
+      </div>
 
       {loading && <p className="history-loading">正在加载历史记录…</p>}
       {errorMessage && <p className="inline-error" role="alert">{errorMessage}</p>}

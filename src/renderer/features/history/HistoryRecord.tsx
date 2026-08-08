@@ -25,7 +25,7 @@ export function HistoryRecord({ record, canEdit, onEdit, onDelete }: Props) {
   return (
     <article className={`history-record ${record.status === 'invalid' ? 'is-invalid' : ''}`} data-record-id={record.id}>
       <header className="history-record-head">
-        <div>
+        <div className="history-record-head-copy">
           <div className="history-record-meta">
             <span className={`status-chip ${record.status === 'invalid' ? 'status-invalid' : 'status-completed'}`}>{record.status === 'invalid' ? '无效' : '有效'}</span>
             <strong>{record.id}</strong>
@@ -34,7 +34,7 @@ export function HistoryRecord({ record, canEdit, onEdit, onDelete }: Props) {
         </div>
         <div className="history-record-actions">
           {canEdit && <button className="text-button" onClick={onEdit}>调整时间</button>}
-          <button className="text-button danger" onClick={onDelete}>删除 {record.id}</button>
+          <button className="text-button danger" aria-label="删除记录" onClick={onDelete}>删除</button>
         </div>
       </header>
       <div className="history-record-body">

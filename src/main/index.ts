@@ -6,6 +6,7 @@ import { createTrayController, createTrayMenuTemplate, configureTray, type TrayL
 import { createDatabase } from './db/database';
 import { SessionRepository } from './db/repositories';
 import { ExportService } from './services/export-service';
+import { HistoryService } from './services/history-service';
 import { SessionService } from './services/session-service';
 import { SettingsService } from './services/settings-service';
 import { registerIpc, type IpcRegistration } from './ipc/register-ipc';
@@ -18,12 +19,45 @@ import {
   type BrowserWindowLike,
   type WindowManager,
 } from './windows/main-window';
+
+function withWindowMode(url: string, mode: 'main' | 'mini'): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set('window', mode);
+  return parsed.toString();
+}
+
+function withStartupError(url: string, reason: 'database'): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set('startupError', reason);
+  return parsed.toString();
+}
+
+function createStartupErrorWindow(rendererTargetUrl: string): BrowserWindowLike {
+  const window = new BrowserWindow({
+    width: 720,
+    height: 620,
+    minWidth: 680,
+    minHeight: 560,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  }) as unknown as BrowserWindowLike;
+  const targetUrl = withStartupError(withWindowMode(rendererTargetUrl, 'main'), 'database');
+  configureWindow(window, targetUrl);
+  void window.loadURL(targetUrl);
+  return window;
+}
+
 function createElectronWindowManager(
   windowFocusController: ReturnType<typeof createWindowFocusController>,
   repository: SessionRepository,
 ): WindowManager {
   const rendererFile = join(__dirname, '../renderer/index.html');
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  const rendererTargetUrl = rendererUrl ?? pathToFileURL(rendererFile).href;
   return createWindowManager({
     createMainWindow: (options) => new BrowserWindow(options) as unknown as BrowserWindowLike,
     createMiniWindow: (options) => new BrowserWindow(options) as unknown as BrowserWindowLike,
@@ -31,18 +65,20 @@ function createElectronWindowManager(
     saveSettings: (settings) => repository.saveSettings(settings),
     getScreenWorkAreas: () => screen.getAllDisplays().map((display) => display.workArea),
     configureSecurity: configureWindow,
-    loadRenderer: (window) => {
+    loadRenderer: (window, mode) => {
+      const targetUrl = withWindowMode(rendererTargetUrl, mode);
       if (rendererUrl) {
-        void window.loadURL(rendererUrl);
+        void window.loadURL(targetUrl);
       } else {
-        void window.loadFile(rendererFile);
+        void window.loadURL(targetUrl);
       }
     },
-    rendererUrl: rendererUrl ?? pathToFileURL(rendererFile).href,
+    rendererUrl: rendererTargetUrl,
     rendererFile,
     preloadPath: join(__dirname, '../preload/index.js'),
     onMainWindowCreated: (window) => windowFocusController.setWindow(window),
     onMainWindowClosed: () => windowFocusController.setWindow(null),
+    getRendererTargetUrl: (mode) => withWindowMode(rendererTargetUrl, mode),
   });
 }
 
@@ -93,33 +129,46 @@ if (acquireSingleInstance(app, () => {
   }
 })) {
   app.whenReady().then(() => {
-    const database = createDatabase(join(app.getPath('userData'), 'pw-tool.sqlite3'));
-    const repository = new SessionRepository(database);
-    windowManager = createElectronWindowManager(windowFocusController, repository);
-    const session = new SessionService(repository);
-    const settings = new SettingsService(repository);
-    const exportService = new ExportService(
-      repository,
-      async () => {
-        const result = await dialog.showSaveDialog({ defaultPath: '陪玩小工具.csv' });
-        return result.canceled ? null : result.filePath;
-      },
-      (filePath, contents) => writeFile(filePath, contents, 'utf8'),
-    );
-    const registration: IpcRegistration = registerIpc({
-      ipcMain,
-      session,
-      history: { list: (input) => repository.list(input), delete: (id) => repository.delete(id), exportCsv: (input) => exportService.exportCsv(input) },
-      settings,
-      window: {
-        showMain: () => windowManager?.showMainWindow(),
-        showMini: () => windowManager?.showMiniWindow(),
-        setAlwaysOnTop: (value) => windowManager?.setMiniAlwaysOnTop(value) ?? false,
-      },
-      snapshotTargets: () => windowManager?.getSnapshotTargets() ?? [],
-    });
-    const destroyTray = createApplication(windowManager);
-    registerAppBeforeQuitCleanup({ app, windowManager, registration, destroyTray, database });
-    app.on('activate', () => windowManager?.showMainWindow());
+    const rendererFile = join(__dirname, '../renderer/index.html');
+    const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+    const rendererTargetUrl = rendererUrl ?? pathToFileURL(rendererFile).href;
+    try {
+      const database = createDatabase(join(app.getPath('userData'), 'pw-tool.sqlite3'));
+      const repository = new SessionRepository(database);
+      windowManager = createElectronWindowManager(windowFocusController, repository);
+      const session = new SessionService(repository);
+      const history = new HistoryService(repository);
+      const settings = new SettingsService(repository);
+      const exportService = new ExportService(
+        repository,
+        async () => {
+          const result = await dialog.showSaveDialog({ defaultPath: '陪玩小工具.csv' });
+          return result.canceled ? null : result.filePath;
+        },
+        (filePath, contents) => writeFile(filePath, contents, 'utf8'),
+      );
+      const registration: IpcRegistration = registerIpc({
+        ipcMain,
+        session,
+        history: {
+          list: (input) => history.list(input),
+          delete: (id) => history.delete(id),
+          editSegments: (input) => history.editSegments(input),
+          exportCsv: (input) => exportService.exportCsv(input),
+        },
+        settings,
+        window: {
+          showMain: () => windowManager?.showMainWindow(),
+          showMini: () => windowManager?.showMiniWindow(),
+          setAlwaysOnTop: (value) => windowManager?.setMiniAlwaysOnTop(value) ?? false,
+        },
+        snapshotTargets: () => windowManager?.getSnapshotTargets() ?? [],
+      });
+      const destroyTray = createApplication(windowManager);
+      registerAppBeforeQuitCleanup({ app, windowManager, registration, destroyTray, database });
+      app.on('activate', () => windowManager?.showMainWindow());
+    } catch {
+      createStartupErrorWindow(rendererTargetUrl);
+    }
   });
 }

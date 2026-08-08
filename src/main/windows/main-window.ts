@@ -109,13 +109,14 @@ export interface WindowManagerDependencies {
   saveSettings(settings: AppSettings): void;
   getScreenWorkAreas(): WindowWorkArea[];
   configureSecurity?: (window: BrowserWindowLike, rendererUrl: string) => void;
-  loadRenderer?: (window: BrowserWindowLike) => void;
+  loadRenderer?: (window: BrowserWindowLike, mode: 'main' | 'mini') => void;
   rendererUrl?: string;
   rendererFile?: string;
   preloadPath?: string;
   focusRecovery?: () => void;
   onMainWindowCreated?: (window: BrowserWindowLike) => void;
   onMainWindowClosed?: () => void;
+  getRendererTargetUrl?(mode: 'main' | 'mini'): string;
 }
 
 export interface WindowManager {
@@ -159,13 +160,26 @@ export function createWindowManager(dependencies: WindowManagerDependencies): Wi
     dependencies.saveSettings({ ...settings, mainWindowBounds: window.getBounds() });
   };
 
-  const loadWindow = (window: BrowserWindowLike): void => {
-    if (dependencies.rendererUrl) {
-      dependencies.configureSecurity?.(window, dependencies.rendererUrl);
-    } else if (dependencies.rendererFile) {
-      dependencies.configureSecurity?.(window, dependencies.rendererFile);
+  const targetUrlFor = (mode: 'main' | 'mini'): string | undefined => {
+    return dependencies.getRendererTargetUrl?.(mode) ?? dependencies.rendererUrl ?? dependencies.rendererFile;
+  };
+
+  const loadWindow = (window: BrowserWindowLike, mode: 'main' | 'mini'): void => {
+    const targetUrl = targetUrlFor(mode);
+    if (targetUrl) {
+      dependencies.configureSecurity?.(window, targetUrl);
     }
-    dependencies.loadRenderer?.(window);
+    if (dependencies.loadRenderer) {
+      dependencies.loadRenderer(window, mode);
+      return;
+    }
+    if (dependencies.rendererUrl) {
+      void window.loadURL(dependencies.rendererUrl);
+      return;
+    }
+    if (dependencies.rendererFile) {
+      void window.loadFile(dependencies.rendererFile);
+    }
   };
 
   const attachMainWindow = (window: BrowserWindowLike): void => {
@@ -201,7 +215,7 @@ export function createWindowManager(dependencies: WindowManagerDependencies): Wi
 
     mainWindow = dependencies.createMainWindow(createMainWindowOptions(dependencies.preloadPath ?? '', bounds));
     attachMainWindow(mainWindow);
-    loadWindow(mainWindow);
+    loadWindow(mainWindow, 'main');
     dependencies.onMainWindowCreated?.(mainWindow);
     return mainWindow;
   };
@@ -218,7 +232,7 @@ export function createWindowManager(dependencies: WindowManagerDependencies): Wi
       }
     });
     applyMiniAlwaysOnTop(miniWindow, dependencies.getSettings().miniAlwaysOnTop);
-    loadWindow(miniWindow);
+    loadWindow(miniWindow, 'mini');
     return miniWindow;
   };
 

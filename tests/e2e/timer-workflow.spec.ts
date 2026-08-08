@@ -34,3 +34,39 @@ test('starts, pauses, resumes, completes, and shows the completed session in his
     await database.close();
   }
 });
+
+test('edits a running session by changing only the start time and persists the save', async () => {
+  const database = await createTestDatabase();
+  await database.seedRunningSession();
+  const { page, close } = await launchElectronApp({ userDataDir: database.userDataDir, retainUserDataDir: true });
+
+  try {
+    await expect(page.getByRole('button', { name: '调整时间' })).toBeVisible();
+    await page.getByRole('button', { name: '调整时间' }).click();
+
+    const dialog = page.getByRole('dialog', { name: '调整时间' });
+    const saveButton = dialog.getByRole('button', { name: '保存修改' });
+    const startInput = dialog.getByLabel('第 1 段开始时间');
+    const endInput = dialog.getByLabel('第 1 段结束时间');
+
+    await expect(endInput).toHaveValue('');
+    await startInput.fill('2026-08-06T09:05');
+    await expect(saveButton).toBeEnabled();
+    await saveButton.click();
+    await expect(dialog).not.toBeVisible();
+
+    const active = database.repository.findActive();
+    expect(active).not.toBeNull();
+    expect(active?.id).toBe('running-session');
+    expect(active?.segments).toEqual([
+      {
+        sequence: 0,
+        startedAt: new Date('2026-08-06T09:05').getTime(),
+        endedAt: null,
+      },
+    ]);
+  } finally {
+    await close();
+    await database.close();
+  }
+});

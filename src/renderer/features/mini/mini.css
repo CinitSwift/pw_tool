@@ -1,0 +1,115 @@
+.mini-timer {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.mini-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mini-header h1 {
+  margin: 8px 0 0;
+  font-size: 18px;
+}
+
+.mini-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.mini-panel {
+  padding: 14px;
+}
+
+.mini-panel span,
+.mini-detail span,
+.mini-toggle small,
+.mini-panel small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mini-panel strong {
+  display: block;
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-time strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.mini-money-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mini-money-grid .commission {
+  background: #1d1915;
+  border-color: #3b3428;
+}
+
+.mini-money-grid .commission strong {
+  color: var(--warning);
+}
+
+.mini-detail {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.mini-detail > div {
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, .02);
+}
+
+.mini-detail strong {
+  display: block;
+  margin-top: 6px;
+}
+
+.mini-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.mini-actions button,
+.mini-header .text-button {
+  min-height: 40px;
+}
+
+.mini-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.mini-toggle span {
+  display: grid;
+  gap: 4px;
+}
+
+@media (max-width: 400px) {
+  .mini-money-grid,
+  .mini-detail,
+  .mini-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .mini-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

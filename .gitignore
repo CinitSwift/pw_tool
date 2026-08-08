@@ -8,3 +8,6 @@ test-results/
 *.db
 *.db-shm
 *.db-wal
+dist/
+.omo/
+.opencode/

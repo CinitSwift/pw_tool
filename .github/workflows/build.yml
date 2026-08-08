@@ -4,10 +4,15 @@ on:
   push:
     branches:
       - feature/desktop-timer
+    tags:
+      - v*
   workflow_dispatch:
 
 env:
   TZ: Asia/Shanghai
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -50,3 +55,25 @@ jobs:
           name: pw-tool-${{ runner.os }}
           path: dist/*
           if-no-files-found: error
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

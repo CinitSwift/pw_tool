@@ -23,6 +23,10 @@ export class InMemoryRepository {
     );
   }
 
+  findById(id: string): Session | null {
+    return structuredClone(this.sessions.find((session) => session.id === id) ?? null);
+  }
+
   insertSession(session: Session): void {
     if (this.sessions.some(({ status }) => status === 'running' || status === 'paused')) {
       throw new Error('unique active session constraint failed');

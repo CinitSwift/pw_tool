@@ -71,3 +71,10 @@ export interface HistoryQuery {
   from?: number;
   to?: number;
 }
+
+export type EditSegmentsInput =
+  | TimeSegment[]
+  | {
+    sessionId: string;
+    segments: TimeSegment[];
+  };
